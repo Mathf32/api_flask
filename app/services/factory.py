@@ -1,10 +1,19 @@
 import sqlite3
-from model import Product
+from app.models.model import Product
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+db_path = os.getenv("db_path")
 
 class Factory:
 
+    
+    
+
     def init_db():
-        conn = sqlite3.connect("products.db")
+
+        conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
         # Table products
@@ -44,7 +53,7 @@ class Factory:
         conn.commit()
         conn.close()
 
-    def save_products(products, db_path: str = "products.db") -> None:
+    def save_products(products, db_path: str = db_path) -> None:
         with sqlite3.connect(db_path) as conn:
             conn.executemany("""
                 INSERT OR REPLACE INTO products
@@ -65,9 +74,9 @@ class Factory:
                 for p in products
             ])
             conn.commit()
-
+    
     def create_command(product_id: int, quantity: int, product: Product) -> bool:
-        conn = sqlite3.connect("products.db")
+        conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
         total_price = product.price * quantity

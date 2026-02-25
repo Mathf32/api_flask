@@ -1,19 +1,47 @@
-from flask import Flask,jsonify, request
-from flasgger import Swagger
-from model import Product
-from factory import Factory 
+from flask import Blueprint,jsonify, request
+from app.services.factory import Factory
+from app.models.model import Product,Order
 
-app = Flask(__name__)
+orders_bp = Blueprint("orders", __name__)
 
-#Pour utiliser swagger utilisez le path /apidocs
-swagger = Swagger(app)
-
-@app.get("/")
-def get():
-    return {"products":products}
-
-@app.post("/order")
+@orders_bp.post("/order")
 def order():
+    """
+    Création d'une commande
+    ---
+    tags:
+      - Orders
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - product
+          properties:
+            product:
+              type: object
+              required:
+                - id
+                - quantity
+              properties:
+                id:
+                  type: integer
+                  example: 123
+                quantity:
+                  type: integer
+                  example: 2
+    responses:
+      201:
+        description: Commande créée
+      400:
+        description: Erreur de validation
+    """
+
+    products = Product.GetProductList()
     data = request.get_json()
 
     product_id = data["product"]["id"]
@@ -55,11 +83,3 @@ def order():
     Factory.create_command(product_id,quantity,product)
 
     return {"products":data}
-
-if __name__ == "__main__":
-
-    products = Product.GetProductList()
-    Factory.init_db()
-    Factory.save_products(products)
-    app.run(debug=True)
-
