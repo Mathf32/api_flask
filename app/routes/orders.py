@@ -1,6 +1,7 @@
 from flask import Blueprint,jsonify, request
-from app.services.factory import Factory
-from app.models.model import Product,Order
+from app.database.db import Product,Order
+import app.database.db as db
+from playhouse.shortcuts import model_to_dict
 
 orders_bp = Blueprint("orders", __name__)
 
@@ -41,13 +42,15 @@ def order():
         description: Erreur de validation
     """
 
-    products = Product.GetProductList()
     data = request.get_json()
+    data_transform = data["product"]
 
     product_id = data["product"]["id"]
     quantity = data["product"]["quantity"]
 
-    if not any(p.id == product_id for p in products):
+    verif_produit = Product.get_or_none(Product.id == product_id)
+
+    if verif_produit == None:
         return jsonify({
             "errors": {
                 "product": {
@@ -57,19 +60,19 @@ def order():
             }
         }), 400
     
-    if product_id is None:
+    if product_id is None or quantity is None:
         return jsonify({
             "errors": {
                 "product": {
                     "code": "missing-fields",
-                    "name": "La création d'une commande nécessite un produit"
+                    "name": "La création d'une commande nécessite un produit et une quantité"
                 }
             }
         }), 400
     
-    product = next((p for p in products if p.id == product_id), None)
     
-    if not product.in_stock:
+    
+    if not verif_produit.in_stock:
         return {
             "errors": {
                 "product": {
@@ -80,6 +83,19 @@ def order():
         }, 400
 
 
-    Factory.create_command(product_id,quantity,product)
+    new_order = db.create_order(data_transform)
 
-    return {"products":data}
+    return {"Nouvelle Commande ": model_to_dict(new_order)}
+
+@orders_bp.put("/order/<int:order_id>")
+def put_order(order_id):
+    data = request.get_json()
+    order_transformed = data["order"]
+
+    db.update_order(order_transformed,order_id)
+
+    order = Order.get_or_none(Order.id == order_id)
+
+    return {"Commande modifié": model_to_dict(order,backrefs=False, recurse=True)}
+
+

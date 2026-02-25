@@ -1,26 +1,32 @@
 from flask import Flask
-from app.services.factory import Factory
+import app.database.db as db
+from app.database.db import Product
 from app.routes.products import products_bp
 from app.routes.orders import orders_bp
 from flasgger import Swagger
-from dotenv import load_dotenv
-import os
+import requests
+import json
+
 
 
 def create_app():
     app = Flask(__name__)
 
-    #Pour utiliser swagger utilisez le path /apidocs
-    
+    db.init_db()
+    products = GetProductList()
 
-    Factory.init_db()
+    db.save_products(products)
 
     app.register_blueprint(products_bp)
     app.register_blueprint(orders_bp)
-   
-
-    load_dotenv()
 
     Swagger(app)
 
     return app
+
+def GetProductList():
+        response = requests.get("https://dimensweb.uqac.ca/~jgnault/shops/products/")
+        data = response.json()
+        
+        products_data = data["products"]
+        return products_data

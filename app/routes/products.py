@@ -1,5 +1,5 @@
 
-from app.models.model import Product
+from app.database.db import Product
 from flask import Blueprint,jsonify, request
 
 products_bp = Blueprint("products", __name__)
@@ -46,4 +46,4 @@ def get():
                   in_stock:
                     type: boolean
     """
-    return {"products":Product.GetProductList()}
+    return {"products":[p.__data__ for p in Product.select()]}
