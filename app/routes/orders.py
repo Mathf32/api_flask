@@ -3,6 +3,8 @@ from app.database.db import Product,Order
 import app.database.db as db
 from playhouse.shortcuts import model_to_dict
 
+from app.routes.shops import pay_order
+
 orders_bp = Blueprint("orders", __name__)
 
 @orders_bp.post("/order")
@@ -87,15 +89,53 @@ def order():
 
     return {"Nouvelle Commande ": model_to_dict(new_order)}
 
+
 @orders_bp.put("/order/<int:order_id>")
 def put_order(order_id):
+    """
+        Mise à jour ou Paiement d'une commande
+        ---
+        tags: [Orders]
+        parameters:
+          - in: body
+            name: body
+            schema:
+              type: object
+              properties:
+                order:
+                  type: object
+                  properties:
+                    email: {type: string}
+                    shipping_information: {type: object}
+                credit_card:
+                  type: object
+                  properties:
+                    name: {type: string}
+                    number: {type: string}
+                    expiration_year: {type: integer}
+                    expiration_month: {type: integer}
+                    cvv: {type: string}
+        """
     data = request.get_json()
-    order_transformed = data["order"]
 
-    db.update_order(order_transformed,order_id)
+    # 1. CAS PAIEMENT : Si 'credit_card' est présent
+    if "credit_card" in data:
+        result, status = pay_order(order_id, data["credit_card"])
+        return jsonify(result), status
 
-    order = Order.get_or_none(Order.id == order_id)
+    # 2. CAS MISE À JOUR : Si 'order' est présent
+    order_transformed = data.get("order")
+    if order_transformed:
+        # On met à jour les infos (adresse, email, taxes)
+        db.update_order(order_transformed, order_id)
 
-    return {"Commande modifié": model_to_dict(order,backrefs=False, recurse=True)}
+        # On DOIT récupérer l'objet mis à jour pour le retourner au client
+        order = Order.get_or_none(Order.id == order_id)
 
+        if order:
+            return jsonify({"order": model_to_dict(order)}), 200
+        else:
+            return jsonify({"error": "Order not found"}), 404
+
+    return jsonify({"error": "Invalid request"}), 400
 

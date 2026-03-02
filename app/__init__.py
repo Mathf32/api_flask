@@ -11,17 +11,19 @@ import json
 
 def create_app():
     app = Flask(__name__)
+    db.setup_db()
 
-    db.init_db()
-    products = GetProductList()
-
-    db.save_products(products)
+    # AJOUTE CECI ICI :
+    @app.cli.command("init-db")
+    def init_db_command():
+        db.init_db() # Crée les tables
+        products = GetProductList()
+        db.save_products(products)
+        print("Base de données initialisée !")
 
     app.register_blueprint(products_bp)
     app.register_blueprint(orders_bp)
-
     Swagger(app)
-
     return app
 
 def GetProductList():
