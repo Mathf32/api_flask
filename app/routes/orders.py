@@ -112,31 +112,80 @@ def order():
 
 
 @orders_bp.put("/order/<int:order_id>")
-def put_order(order_id):
+def put_order(order_id: int):
     """
-        Mise à jour ou Paiement d'une commande
-        ---
-        tags: [Orders]
-        parameters:
-          - in: body
-            name: body
-            schema:
-              type: object
-              properties:
-                order:
-                  type: object
-                  properties:
-                    email: {type: string}
-                    shipping_information: {type: object}
-                credit_card:
-                  type: object
-                  properties:
-                    name: {type: string}
-                    number: {type: string}
-                    expiration_year: {type: integer}
-                    expiration_month: {type: integer}
-                    cvv: {type: string}
-        """
+    Mettre à jour une commande (adresse/taxes) OU payer la commande
+    ---
+    tags:
+      - Orders
+    parameters:
+      - name: order_id
+        in: path
+        required: true
+        type: integer
+
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          description: Payload pour update ou paiement
+          oneOf:
+            - $ref: '#/definitions/OrderUpdatePayload'
+            - $ref: '#/definitions/OrderPaymentPayload'
+          example:
+            order:
+                "credit_card" : 
+                    "name" : "John Doe"
+                    "number" : "4242 4242 4242 4242"
+                    "expiration_year" : 2024
+                    "cvv" : "123"
+                    "expiration_month" : 9
+                "amount_charged": 10148
+
+    responses:
+      200:
+        description: OK
+      404:
+        description: Commande inexistante
+      422:
+        description: Erreur de validation
+
+    definitions:
+      OrderUpdatePayload:
+        type: object
+        properties:
+          order:
+            type: object
+            properties:
+              email:
+                type: string
+                example: "pierluc@test.com"
+              shipping_information:
+                type: object
+                properties:
+                  country: { type: string, example: "Canada" }
+                  address: { type: string, example: "555 Boulevard de l'Université" }
+                  postal_code: { type: string, example: "G7H 2B1" }
+                  city: { type: string, example: "Saguenay" }
+                  province:
+                    type: string
+                    example: "QC"
+                required: [country, address, postal_code, city, province]
+
+      OrderPaymentPayload:
+        type: object
+        properties:
+          credit_card:
+            type: object
+            properties:
+              name: { type: string, example: "Pier-Luc Larouche" }
+              number: { type: string, example: "4242424242424242" }
+              expiration_year: { type: integer, example: 2028 }
+              expiration_month: { type: integer, example: 12 }
+              cvv: { type: string, example: "123" }
+            required: [name, number, expiration_year, expiration_month, cvv]
+    """
     data = request.get_json()
 
     # 1. CAS PAIEMENT : Si 'credit_card' est présent
