@@ -1,6 +1,33 @@
 import pytest
 from app.database.db import Order, Product, db
 
+from app.database.db import setup_db, CreditCard, ShippingInformation, Transaction
+
+# 1. On force l'initialisation de la DB pour l'environnement de test
+setup_db()
+
+
+@pytest.fixture(autouse=True)
+def prepare_db():
+    # Crée les tables si elles n'existent pas dans le fichier .db pointé par setup_db()
+    db.connect(reuse_if_open=True)
+    db.create_tables([Product, Order, Transaction, CreditCard, ShippingInformation])
+
+    # On s'assure que le produit ID=1 existe, sinon tes tests planteront dès la création de commande
+    Product.get_or_create(
+        id=1,
+        defaults={
+            "name": "Produit Test",
+            "type": "test",
+            "description": "Description",
+            "image": "img.png",
+            "height": 10,
+            "weight": 100,
+            "price": 28.10,
+            "in_stock": True
+        }
+    )
+    yield
 
 def test_error_already_paid(client):
     """Vérifie qu'on ne peut pas payer une commande déjà payée (Exigence technique)"""
@@ -92,4 +119,4 @@ def test_full_order_flow_real(client):
         print(f"\nLOG ERREUR UQAC: {response.get_json()}")
 
     assert response.status_code == 200
-    assert response.get_json()["transaction"]["success"] is True
+    assert response.get_json()["order"]["transaction"]["success"] is True
