@@ -54,7 +54,7 @@ def order():
               properties:
                 id:
                   type: integer
-                  example: 123
+                  example: 1
                 quantity:
                   type: integer
                   example: 2
@@ -134,14 +134,20 @@ def put_order(order_id: int):
             - $ref: '#/definitions/OrderUpdatePayload'
             - $ref: '#/definitions/OrderPaymentPayload'
           example:
-            order:
-                "credit_card" : 
-                    "name" : "John Doe"
-                    "number" : "4242 4242 4242 4242"
-                    "expiration_year" : 2028
-                    "cvv" : "123"
-                    "expiration_month" : 9
-                "amount_charged": 10148
+              order:
+                email: "pierluc@test.com"
+                shipping_information:
+                  country: "Canada"
+                  address: "555 Boulevard de l'Université"
+                  postal_code: "G7H 2B1"
+                  city: "Saguenay"
+                  province: "QC"
+              credit_card:
+                name: "John Doe"
+                number: "4242424242424242"
+                expiration_year: 2028
+                expiration_month: 9
+                cvv: "123"
 
     responses:
       200:
