@@ -138,7 +138,7 @@ def put_order(order_id: int):
                 "credit_card" : 
                     "name" : "John Doe"
                     "number" : "4242 4242 4242 4242"
-                    "expiration_year" : 2024
+                    "expiration_year" : 2028
                     "cvv" : "123"
                     "expiration_month" : 9
                 "amount_charged": 10148
@@ -188,24 +188,21 @@ def put_order(order_id: int):
     """
     data = request.get_json()
 
-    # 1. CAS PAIEMENT : Si 'credit_card' est présent
-    if "credit_card" in data:
-        result, status = pay_order(order_id, data["credit_card"])
+    credit_card = data.get("credit_card") or (data.get("order") and data.get("order").get("credit_card"))
+
+    # 1. CAS PAIEMENT
+    if credit_card:
+        # On passe la carte extraite à pay_order
+        result, status = pay_order(order_id, credit_card)
         return jsonify(result), status
 
-    # 2. CAS MISE À JOUR : Si 'order' est présent
-    order_transformed = data.get("order")
-    if order_transformed:
-        # On met à jour les infos (adresse, email, taxes)
-        db.update_order(order_transformed, order_id)
-
-        # On DOIT récupérer l'objet mis à jour pour le retourner au client
+    # 2. CAS MISE À JOUR (Adresse/Email)
+    order_payload = data.get("order")
+    if order_payload:
+        db.update_order(order_payload, order_id)
         order = Order.get_or_none(Order.id == order_id)
-
         if order:
             return jsonify({"order": model_to_dict(order)}), 200
-        else:
-            return jsonify({"error": "Order not found"}), 404
 
     return jsonify({"error": "Invalid request"}), 400
 
