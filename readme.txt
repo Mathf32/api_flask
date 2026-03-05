@@ -25,5 +25,5 @@ payload pour le shipping info
       "postal_code": "G7H 2B1",
       "province": "QC"
     }
-  },
+  }
 }
