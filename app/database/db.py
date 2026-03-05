@@ -137,7 +137,13 @@ def create_order(requete: dict):
 
 
 def update_order(request: dict, order_id):
-    shipping_info = create_shippinginfo(request["shipping_information"])
+    # On vérifie si shipping_information est présent avant de tenter de le créer
+    shipping_data = request.get("shipping_information")
+
+    if shipping_data:
+        shipping_info = create_shippinginfo(shipping_data)
+    else:
+        shipping_info = None
 
     db.connect(reuse_if_open=True)
     try:
@@ -146,22 +152,18 @@ def update_order(request: dict, order_id):
             if order is None:
                 return None
 
-            order.email = request["email"]
-            order.shipping_information = shipping_info
+            # On ne met à jour que ce qui est fourni
+            if request.get("email"):
+                order.email = request["email"]
 
-            # Taux spécifique pour le test (Produit 1 au QC)
-            # Utilise 1.15 si 1.14975 ne donne pas le bon résultat
-            tax_rate = 1.15 if shipping_info.province == "QC" else 1.13
-
-            # CALCUL ULTRA-PRÉCIS
-            # On calcule en CENTS immédiatement pour éviter les flottants
-            raw_total_cents = (order.total_price * tax_rate) * 100
-
-            # On arrondit mathématiquement (le +0.5 simule un round normal vers le haut)
-            # 3231.5 + 0.5 = 3232
-            order.total_price_tax = float(int(raw_total_cents + 0.5)) / 100.0
+            if shipping_info:
+                order.shipping_information = shipping_info
+                # Recalcul des taxes (QC = 15%, etc.)
+                tax_rate = 1.15 if shipping_info.province == "QC" else 1.13
+                order.total_price_tax = float(int((order.total_price * tax_rate) * 100 + 0.5)) / 100.0
 
             order.save()
+            return order
     finally:
         db.close()
 

@@ -258,7 +258,7 @@ def get_order(order_id: int):
     shipping_info = None
     province = None
     if getattr(order, "shipping_information_id", None):
-        shipping_info = ShippingInformation.get_by_id(order.shipping_information_id)
+        shipping_info = db.ShippingInformation.get_by_id(order.shipping_information_id)
         province = (shipping_info.province or "").strip().upper()
 
     # Shipping calc (poids total)
@@ -271,11 +271,11 @@ def get_order(order_id: int):
 
     credit_card = None
     if getattr(order, "credit_card_id", None):
-        credit_card = CreditCard.get_by_id(order.credit_card_id)
+        credit_card = db.CreditCard.get_by_id(order.credit_card_id)
 
     transaction = None
     if getattr(order, "transaction_id", None):
-        transaction = Transaction.get_by_id(order.transaction_id)
+        transaction = db.Transaction.get_by_id(order.transaction_id)
 
     payload = {
         "order": {
