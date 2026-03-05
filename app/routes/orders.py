@@ -1,5 +1,5 @@
 from flask import Blueprint,jsonify, request
-from app.database.db import Product,Order
+from app.database.db import Product,Order,ShippingInformation,CreditCard,Transaction
 import app.database.db as db
 from playhouse.shortcuts import model_to_dict
 from peewee import DoesNotExist
@@ -130,9 +130,6 @@ def put_order(order_id: int):
         schema:
           type: object
           description: Payload pour update ou paiement
-          oneOf:
-            - $ref: '#/definitions/OrderUpdatePayload'
-            - $ref: '#/definitions/OrderPaymentPayload'
           example:
             order:
                 "credit_card" : 
@@ -150,41 +147,6 @@ def put_order(order_id: int):
         description: Commande inexistante
       422:
         description: Erreur de validation
-
-    definitions:
-      OrderUpdatePayload:
-        type: object
-        properties:
-          order:
-            type: object
-            properties:
-              email:
-                type: string
-                example: "pierluc@test.com"
-              shipping_information:
-                type: object
-                properties:
-                  country: { type: string, example: "Canada" }
-                  address: { type: string, example: "555 Boulevard de l'Université" }
-                  postal_code: { type: string, example: "G7H 2B1" }
-                  city: { type: string, example: "Saguenay" }
-                  province:
-                    type: string
-                    example: "QC"
-                required: [country, address, postal_code, city, province]
-
-      OrderPaymentPayload:
-        type: object
-        properties:
-          credit_card:
-            type: object
-            properties:
-              name: { type: string, example: "Pier-Luc Larouche" }
-              number: { type: string, example: "4242424242424242" }
-              expiration_year: { type: integer, example: 2028 }
-              expiration_month: { type: integer, example: 12 }
-              cvv: { type: string, example: "123" }
-            required: [name, number, expiration_year, expiration_month, cvv]
     """
     data = request.get_json()
 
