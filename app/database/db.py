@@ -1,19 +1,33 @@
 # app.py (tout-en-un) — Peewee + SQLite
 import os
-from dotenv import load_dotenv
 from peewee import (
     Proxy,
     SqliteDatabase, Model,
     IntegerField, TextField, FloatField, BooleanField,
     AutoField, ForeignKeyField
 )
-from playhouse.shortcuts import model_to_dict
+
+import os
+
+def load_dotenv(path=".env"):
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    env_path = os.path.abspath(os.path.join(base_dir, "..", "..", path))
+
+    print(env_path)
+
+    with open(env_path) as f:
+        for line in f:
+            line = line.strip()
+            
+            if not line or line.startswith("#"):
+                continue
+            
+            key, value = line.split("=", 1)
+            os.environ[key] = value
 
 
 load_dotenv()
 
-# Chemin DB depuis .env (ex: DB_PATH=app/database/products.db)
-DB_PATH = os.getenv("db_path")
 db = Proxy()
 
 
@@ -22,10 +36,16 @@ class BaseModel(Model):
         database = db
 
 
-def setup_db():
-    load_dotenv()
-    path = os.getenv("db_path", "products.db")
-    real_db = SqliteDatabase(path)
+def setup_db(is_test = False):
+
+    db_path = "products.db" 
+    if(is_test == True):
+        db_path = "test.db"
+
+    if not db_path:
+        raise Exception("La variable d'environnement 'db_path' est requise")
+
+    real_db = SqliteDatabase(db_path)
     db.initialize(real_db)
 
 def init_db():
@@ -82,12 +102,6 @@ class Order(BaseModel):
     shipping_price = FloatField(default=0)
 
 
-def init_db():
-    db.connect(reuse_if_open=True)
-    db.create_tables([Product, Order, Transaction, CreditCard, ShippingInformation])
-    db.close()
-
-
 def save_products(products: list[dict]):
     """
     products = [{"id":1, "name":"...", "type":"...", ...}, ...]
@@ -142,6 +156,15 @@ def update_order(request: dict, order_id):
 
     if shipping_data:
         shipping_info = create_shippinginfo(shipping_data)
+        if shipping_info == None:
+            return {
+            "errors": {
+                "shipping": {
+                    "code": "missing-fields", 
+                    "name": "Il manque un ou plusieurs champs qui sont obligatoires",
+                }
+            }
+        }, 422
     else:
         shipping_info = None
 
@@ -159,7 +182,15 @@ def update_order(request: dict, order_id):
             if shipping_info:
                 order.shipping_information = shipping_info
                 # Recalcul des taxes (QC = 15%, etc.)
-                tax_rate = 1.15 if shipping_info.province == "QC" else 1.13
+                tax_rates = {
+                    "QC": 1.15,
+                    "ON": 1.13,
+                    "AB": 1.05,
+                    "BC": 1.12,
+                    "NS": 1.14
+                }
+                tax_rate = tax_rates.get(shipping_info.province, 0)
+
                 order.total_price_tax = float(int((order.total_price * tax_rate) * 100 + 0.5)) / 100.0
 
             order.save()
@@ -169,6 +200,17 @@ def update_order(request: dict, order_id):
 
 
 def create_shippinginfo(shippinginfo: dict):
+    required_fields = ["country", "address", "postal_code", "city", "province"]
+
+    # Vérifier les champs manquants ou vides
+    missing_fields = [
+        field for field in required_fields
+        if field not in shippinginfo or not shippinginfo.get(field)
+    ]
+
+    if missing_fields:
+        return None
+
     db.connect(reuse_if_open=True)
     with db.atomic():
         shipping = ShippingInformation.create(
@@ -177,7 +219,6 @@ def create_shippinginfo(shippinginfo: dict):
             postal_code=shippinginfo["postal_code"],
             city=shippinginfo["city"],
             province=shippinginfo["province"]
-            
         )
     db.close()
 

@@ -1,3 +1,4 @@
+from urllib import request
 
 from app.database.db import Product
 from flask import Blueprint,jsonify, request

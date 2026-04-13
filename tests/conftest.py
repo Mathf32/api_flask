@@ -1,6 +1,7 @@
 import pytest
 from run import app as flask_app
-from app.database.db import db, Product
+from app.database.db import db
+import os
 
 @pytest.fixture
 def client():
@@ -10,7 +11,9 @@ def client():
 
 @pytest.fixture(autouse=True)
 def setup_test_db():
-    # S'assure que la DB est connectée pour les tests
-    if db.is_closed():
-        db.connect()
-    yield
+    if not db.is_closed():
+        db.close()
+
+    # Supprimer la DB si elle existe
+    if os.path.exists(os.environ["test_db_path"]):
+        os.remove(os.environ["test_db_path"])

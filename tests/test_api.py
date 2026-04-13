@@ -4,7 +4,7 @@ from app.database.db import Order, Product, db
 from app.database.db import setup_db, CreditCard, ShippingInformation, Transaction
 
 # 1. On force l'initialisation de la DB pour l'environnement de test
-setup_db()
+setup_db(True)
 
 
 @pytest.fixture(autouse=True)
@@ -47,7 +47,7 @@ def test_error_already_paid(client):
     pay_payload = {
         "credit_card": {
             "name": "Pier-Luc Larouche",
-            "number": "4540000000000001",  # Doit être un String
+            "number": "4540 0000 0000 0001",  # Doit être un String
             "expiration_year": 2028,  # Doit être un Int
             "expiration_month": 12,  # Doit être un Int
             "cvv": "123"  # Doit être un String
@@ -64,14 +64,13 @@ def test_error_payment_missing_info(client):
     """Vérifie qu'on ne peut pas payer si l'adresse est manquante"""
 
     # Création d'une commande sans passer par l'étape PUT (donc pas d'email/adresse)
-    order_res = client.post('/order', json={"product": {"id": 1, "quantity": 1}})
-    order_id = order_res.get_json()["Nouvelle Commande "]["id"]
+    client.post('/orders', json={"product": {"id": 1, "quantity": 1}})
 
     pay_payload = {
         "credit_card": {"name": "Test", "number": "4540..", "expiration_year": 2028, "expiration_month": 1,
                         "cvv": "111"}
     }
-    response = client.put(f'/order/{order_id}', json=pay_payload)
+    response = client.put(f'/order/1', json=pay_payload)
 
     # Doit retourner 422 car email/adresse manquants
     assert response.status_code == 422
@@ -83,8 +82,8 @@ def test_full_order_flow_real(client):
     """Test du flux complet : Création -> Taxes -> Paiement RÉEL"""
 
     # 1. CRÉATION
-    order_res = client.post('/order', json={"product": {"id": 1, "quantity": 1}})
-    order_id = order_res.get_json()["Nouvelle Commande "]["id"]
+    order_res = client.post('/orders', json={"product": {"id": 1, "quantity": 1}})
+    order_id = order_res.get_json().get("Nouvelle Commande", {}).get("id")
 
     # 2. MISE À JOUR (Taxes + Adresse)
     update_payload = {
@@ -99,24 +98,24 @@ def test_full_order_flow_real(client):
             }
         }
     }
-    client.put(f'/order/{order_id}', json=update_payload)
+    client.put(f'/order/1', json=update_payload)
 
     # 3. PAIEMENT RÉEL
     pay_payload = {
         "credit_card": {
             "name": "Pier-Luc Larouche",
-            "number": "4242424242424242",
+            "number": "4242 4242 4242 4242",
             "expiration_year": 2028,
             "expiration_month": 12,
             "cvv": "123"
         }
     }
 
-    response = client.put(f'/order/{order_id}', json=pay_payload)
+    response = client.put(f'/order/1', json=pay_payload)
 
     # Si ça échoue, le -s dans pytest nous montrera ce print
     if response.status_code != 200:
         print(f"\nLOG ERREUR UQAC: {response.get_json()}")
 
     assert response.status_code == 200
-    assert response.get_json()["order"]["transaction"]["success"] is True
+    assert response.get_json()["order"]["transaction"]["success"] == "true"

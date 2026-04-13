@@ -1,5 +1,5 @@
 from flask import Blueprint,jsonify, request
-from app.database.db import Product,Order,ShippingInformation,CreditCard,Transaction
+from app.database.db import Product,Order
 import app.database.db as db
 from playhouse.shortcuts import model_to_dict
 from peewee import DoesNotExist
@@ -28,7 +28,7 @@ def _safe_dict(model_obj) -> dict:
     return model_obj.__data__.copy() if model_obj is not None else {}
 
 
-@orders_bp.post("/order")
+@orders_bp.post("/orders")
 def order():
     """
     Création d'une commande
@@ -68,8 +68,8 @@ def order():
     data = request.get_json()
     data_transform = data["product"]
 
-    product_id = data["product"]["id"]
-    quantity = data["product"]["quantity"]
+    product_id = data.get("product", {}).get("id")
+    quantity = data.get("product", {}).get("quantity")
 
     verif_produit = Product.get_or_none(Product.id == product_id)
 
@@ -108,9 +108,9 @@ def order():
 
     new_order = db.create_order(data_transform)
 
-    return {"Nouvelle Commande ": model_to_dict(new_order)}
+    return jsonify({"message": "Redirection"}), 302
 
-
+#Payer la commande
 @orders_bp.put("/order/<int:order_id>")
 def put_order(order_id: int):
     """
@@ -156,21 +156,28 @@ def put_order(order_id: int):
     """
     data = request.get_json()
 
-    credit_card = data.get("credit_card") or (data.get("order") and data.get("order").get("credit_card"))
+    credit_card = data.get("credit_card")
+
+    order = Order.get_or_none(Order.id == order_id)
+    if not order:
+        return {"errors": {"order": {"code": "not-found", "name": "Introuvable"}}}, 404
 
     # 1. CAS PAIEMENT
     if credit_card:
         # On passe la carte extraite à pay_order
-        result, status = pay_order(order_id, credit_card)
+        result, status = pay_order(order, credit_card)
         return jsonify(result), status
 
     # 2. CAS MISE À JOUR (Adresse/Email)
     order_payload = data.get("order")
     if order_payload:
-        db.update_order(order_payload, order_id)
-        order = Order.get_or_none(Order.id == order_id)
-        if order:
-            return jsonify({"order": model_to_dict(order)}), 200
+        order = db.update_order(order_payload, order_id)
+        # Si c'est une erreur (tuple)
+        if isinstance(order, tuple):
+            return order
+        
+        return jsonify({"order": model_to_dict(order)}), 200
+        
 
     return jsonify({"error": "Invalid request"}), 400
 

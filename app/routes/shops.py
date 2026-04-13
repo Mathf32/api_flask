@@ -1,14 +1,12 @@
-import requests
+from urllib import request
+import json
 from app.database.db import Order, Transaction, CreditCard, db
 from playhouse.shortcuts import model_to_dict
 
-PAYMENT_URL = "http://dimensweb.uqac.ca/~jgnault/shops/pay/"
+PAYMENT_URL = "https://dimensweb.uqac.ca/~jgnault/shops/pay/"
 
 
-def pay_order(order_id, credit_card_data):
-    order = Order.get_or_none(Order.id == order_id)
-    if not order:
-        return {"errors": {"order": {"code": "not-found", "name": "Introuvable"}}}, 404
+def pay_order(order, credit_card_data):
 
     # Exigence 5 : Pas de double paiement
     if order.paid:
@@ -25,12 +23,31 @@ def pay_order(order_id, credit_card_data):
     total_dollars = float(order.total_price_tax) + float(order.shipping_price)
     amount_cents = int(round(total_dollars * 100))
 
-    card_number = str(credit_card_data.get("number")).replace(" ", "").strip()
+    card_number = credit_card_data.get("number")
+
+
+    #Ajout de la vérification des champs
+    required_fields = ["name", "number", "expiration_year", "expiration_month", "cvv"]
+
+    missing_fields = [
+        field for field in required_fields
+        if not credit_card_data.get(field)
+    ]
+
+    if missing_fields:
+        return {
+            "errors": {
+                "credit_card": {
+                    "code": "missing-fields",
+                    "name": f"Champs manquants ou vides: {', '.join(missing_fields)}"
+                }
+            }
+        }, 422
 
     payload = {
         "credit_card": {
             "name": str(credit_card_data.get("name")),
-            "number": card_number,  # "4242424242424242"
+            "number": card_number,
             "expiration_year": int(credit_card_data.get("expiration_year")),
             "expiration_month": int(credit_card_data.get("expiration_month")),
             "cvv": str(credit_card_data.get("cvv"))
@@ -39,23 +56,23 @@ def pay_order(order_id, credit_card_data):
     }
 
     try:
-        session = requests.Session()
-        response = session.post(PAYMENT_URL, json=payload, timeout=10)
+        data_encoded = json.dumps(payload).encode()
 
-        # --- GESTION DE LA PANNE / RÉPONSE ---
-        if not response.text or response.status_code == 502:
-            res_data = {
-                "transaction": {"id": "MOCK_123", "success": True, "amount_charged": amount_cents},
-                "credit_card": {
-                    "name": credit_card_data.get("name"),
-                    "first_digits": "4242", "last_digits": "4242",
-                    "expiration_year": 2028, "expiration_month": 12
-                }
-            }
-        else:
-            res_data = response.json()
-            if response.status_code != 200:
-                return res_data, 422
+        req = request.Request(
+            PAYMENT_URL,
+            data=data_encoded,
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+
+        with request.urlopen(req, timeout=10) as response:
+            return json.loads(response.read().decode())
+
+        res_data = response.json()
+        
+        print(card_number)
+        if response.status_code != 200:
+            return res_data, response.status_code
 
         # Exigence 3 : Persistance des informations de transaction et CC
         with db.atomic():
@@ -83,8 +100,7 @@ def pay_order(order_id, credit_card_data):
             order_dict = model_to_dict(order)
 
         return {
-            "order": order_dict,
-            "transaction": order_dict.get("transaction")
+            "order": order_dict
         }, 200
 
     except Exception as e:
