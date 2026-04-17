@@ -1,19 +1,58 @@
-import pytest
-from run import app as flask_app
-from app.database.db import db
 import os
+import pytest
+from dotenv import load_dotenv
 
-@pytest.fixture
-def client():
-    flask_app.config['TESTING'] = True
-    with flask_app.test_client() as client:
-        yield client
+load_dotenv()
+
+# Forcer la DB de test AVANT d'importer l'app
+os.environ["db_path"] = os.getenv("test_db_path", "test.db")
+
+from app import create_app
+from app.database.db import db, Product, Order, Transaction, CreditCard, ShippingInformation
+
+
+@pytest.fixture(scope="session")
+def app():
+    flask_app = create_app()
+    flask_app.config["TESTING"] = True
+    return flask_app
+
+
+@pytest.fixture(scope="session")
+def client(app):
+    return app.test_client()
+
 
 @pytest.fixture(autouse=True)
 def setup_test_db():
-    if not db.is_closed():
-        db.close()
+    """Recrée les tables et insère un produit de test avant chaque test."""
+    db.connect(reuse_if_open=True)
+    db.drop_tables([Order, Transaction, CreditCard, ShippingInformation, Product], safe=True)
+    db.create_tables([Product, Order, Transaction, CreditCard, ShippingInformation])
 
-    # Supprimer la DB si elle existe
-    if os.path.exists(os.environ["test_db_path"]):
-        os.remove(os.environ["test_db_path"])
+    Product.create(
+        id=1,
+        name="Produit Test",
+        type="test",
+        description="Description de test",
+        image="img.png",
+        height=10,
+        weight=400,
+        price=28.10,
+        in_stock=True,
+    )
+    Product.create(
+        id=2,
+        name="Produit Hors Stock",
+        type="test",
+        description="Rupture",
+        image="img2.png",
+        height=5,
+        weight=200,
+        price=10.00,
+        in_stock=False,
+    )
+
+    yield
+
+    db.close()
