@@ -1,6 +1,6 @@
-from flask import Blueprint, jsonify, request, url_for
+from flask import Blueprint, jsonify, request
 from app.database.db import (
-    Product, Order, ShippingInformation, CreditCard, Transaction,
+    Product, Order, OrderProduct, ShippingInformation, CreditCard, Transaction,
     TAX_RATES, create_order, update_order_info, db
 )
 from app.routes.shops import pay_order
@@ -11,10 +11,13 @@ orders_bp = Blueprint("orders", __name__)
 
 def _build_order_response(order: Order) -> dict:
     """Construit le dict complet d'une commande selon le format du devis."""
-    try:
-        product = Product.get_by_id(order.product_id)
-    except DoesNotExist:
-        product = None
+
+    # Liste des produits depuis la table de liaison
+    order_products = OrderProduct.select().where(OrderProduct.order == order)
+    products_list = [
+        {"id": op.product_id, "quantity": op.quantity}
+        for op in order_products
+    ]
 
     shipping_info = None
     if order.shipping_information_id:
@@ -42,41 +45,18 @@ def _build_order_response(order: Order) -> dict:
             return {}
         return {f: getattr(obj, f) for f in fields}
 
-    # Calcul prix et shipping en temps réel depuis le produit
-    qty = int(order.product_quantity or 1)
-    total_price = round(float(product.price) * qty, 2) if product else float(order.total_price)
-
-    # Shipping selon poids total
-    total_weight = (product.weight * qty) if product else 0
-    if total_weight <= 500:
-        shipping_price = 5.0
-    elif total_weight < 2000:
-        shipping_price = 10.0
-    else:
-        shipping_price = 25.0
-
-    # Taxes
-    total_price_tax = None
-    if shipping_info:
-        province = (shipping_info.province or "").strip().upper()
-        tax_rate = TAX_RATES.get(province, 0.0)
-        total_price_tax = round(total_price * (1 + tax_rate), 2)
-
     return {
         "order": {
             "id": order.id,
-            "total_price": total_price,
-            "total_price_tax": total_price_tax,
+            "total_price": float(order.total_price),
+            "total_price_tax": float(order.total_price_tax) if order.total_price_tax is not None else None,
             "email": order.email,
             "credit_card": safe(credit_card, ["name", "first_digits", "last_digits", "expiration_year", "expiration_month"]),
             "shipping_information": safe(shipping_info, ["country", "address", "postal_code", "city", "province"]),
             "paid": bool(order.paid),
             "transaction": safe(transaction, ["id", "success", "amount_charged"]),
-            "product": {
-                "id": product.id if product else order.product_id,
-                "quantity": qty,
-            },
-            "shipping_price": shipping_price,
+            "products": products_list,
+            "shipping_price": float(order.shipping_price),
         }
     }
 
@@ -85,66 +65,76 @@ def _build_order_response(order: Order) -> dict:
 def create_order_route():
     data = request.get_json(silent=True) or {}
 
-    product_data = data.get("product")
-    if not product_data:
+    # Nouveau format: {"products": [...]}
+    # Ancien format (rétrocompat): {"product": {...}} → converti en liste
+    products_data = data.get("products")
+    if not products_data:
+        product_data = data.get("product")
+        if product_data:
+            products_data = [product_data]
+
+    if not products_data:
         return jsonify({
             "errors": {
                 "product": {
                     "code": "missing-fields",
-                    "name": "La création d'une commande nécessite un produit et une quantité"
+                    "name": "La création d'une commande nécessite au moins un produit"
                 }
             }
         }), 422
 
-    product_id = product_data.get("id")
-    quantity = product_data.get("quantity")
+    validated = []
+    for item in products_data:
+        product_id = item.get("id")
+        quantity = item.get("quantity")
 
-    if product_id is None or quantity is None:
-        return jsonify({
-            "errors": {
-                "product": {
-                    "code": "missing-fields",
-                    "name": "La création d'une commande nécessite un produit et une quantité"
+        if product_id is None or quantity is None:
+            return jsonify({
+                "errors": {
+                    "product": {
+                        "code": "missing-fields",
+                        "name": "Chaque produit doit avoir un id et une quantité"
+                    }
                 }
-            }
-        }), 422
+            }), 422
 
-    try:
-        quantity = int(quantity)
-    except (ValueError, TypeError):
-        return jsonify({
-            "errors": {"product": {"code": "missing-fields", "name": "La quantité doit être un entier"}}
-        }), 422
+        try:
+            quantity = int(quantity)
+        except (ValueError, TypeError):
+            return jsonify({
+                "errors": {"product": {"code": "missing-fields", "name": "La quantité doit être un entier"}}
+            }), 422
 
-    if quantity < 1:
-        return jsonify({
-            "errors": {"product": {"code": "missing-fields", "name": "La quantité doit être supérieure à 0"}}
-        }), 422
+        if quantity < 1:
+            return jsonify({
+                "errors": {"product": {"code": "missing-fields", "name": "La quantité doit être >= 1"}}
+            }), 422
 
-    product = Product.get_or_none(Product.id == product_id)
-    if product is None:
-        return jsonify({
-            "errors": {
-                "product": {
-                    "code": "invalid-product",
-                    "name": "Le produit demandé n'existe pas"
+        product = Product.get_or_none(Product.id == product_id)
+        if product is None:
+            return jsonify({
+                "errors": {
+                    "product": {
+                        "code": "invalid-product",
+                        "name": "Le produit demandé n'existe pas"
+                    }
                 }
-            }
-        }), 422
+            }), 422
 
-    if not product.in_stock:
-        return jsonify({
-            "errors": {
-                "product": {
-                    "code": "out-of-inventory",
-                    "name": "Le produit demandé n'est pas en inventaire"
+        if not product.in_stock:
+            return jsonify({
+                "errors": {
+                    "product": {
+                        "code": "out-of-inventory",
+                        "name": "Le produit demandé n'est pas en inventaire"
+                    }
                 }
-            }
-        }), 422
+            }), 422
 
-    order = create_order(int(product_id), quantity)
+        validated.append({"id": int(product_id), "quantity": quantity})
 
-    # 302 avec header Location selon le devis
+    order = create_order(validated)
+
     response = jsonify({})
     response.status_code = 302
     response.headers["Location"] = f"/order/{order.id}"

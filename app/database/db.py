@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 from peewee import (
     Proxy,
-    SqliteDatabase, Model,
+    SqliteDatabase, PostgresqlDatabase, Model,
     IntegerField, TextField, FloatField, BooleanField,
     AutoField, ForeignKeyField
 )
@@ -73,32 +73,61 @@ class Order(BaseModel):
     shipping_information = ForeignKeyField(ShippingInformation, backref="orders", null=True)
     paid = BooleanField(default=False)
     transaction = ForeignKeyField(Transaction, backref="orders", null=True)
-    product = ForeignKeyField(Product, backref="orders")
-    product_quantity = IntegerField()
     shipping_price = FloatField(default=0)
 
     class Meta:
         table_name = 'orders'
 
 
+class OrderProduct(BaseModel):
+    """Table de liaison Order ↔ Product (supporte les commandes multi-produits)."""
+    order = ForeignKeyField(Order, backref='order_products')
+    product = ForeignKeyField(Product, backref='order_products')
+    quantity = IntegerField()
+
+    class Meta:
+        table_name = 'order_products'
+
+
 def setup_db():
     load_dotenv()
-    path = os.getenv("db_path", "products.db")
-    real_db = SqliteDatabase(path)
+    db_host = os.getenv("DB_HOST")
+    if db_host:
+        # Mode production : PostgreSQL
+        real_db = PostgresqlDatabase(
+            os.getenv("DB_NAME", "api8inf349"),
+            user=os.getenv("DB_USER", "user"),
+            password=os.getenv("DB_PASSWORD", "pass"),
+            host=db_host,
+            port=int(os.getenv("DB_PORT", 5432)),
+        )
+    else:
+        # Mode développement/tests : SQLite
+        path = os.getenv("db_path", "products.db")
+        real_db = SqliteDatabase(path)
     db.initialize(real_db)
 
 
 def init_db():
     db.connect(reuse_if_open=True)
-    db.create_tables([Product, Order, Transaction, CreditCard, ShippingInformation])
+    db.create_tables([Product, ShippingInformation, CreditCard, Transaction, Order, OrderProduct])
     db.close()
+
+
+def _clean_product(p: dict) -> dict:
+    """Supprime les caractères NUL (\\x00) incompatibles avec PostgreSQL."""
+    return {k: v.replace('\x00', '') if isinstance(v, str) else v for k, v in p.items()}
 
 
 def save_products(products: list):
     db.connect(reuse_if_open=True)
     with db.atomic():
         for p in products:
-            Product.insert(p).on_conflict_replace().execute()
+            p = _clean_product(p)
+            Product.insert(p).on_conflict(
+                conflict_target=[Product.id],
+                update=p
+            ).execute()
     db.close()
 
 
@@ -112,27 +141,43 @@ def _calc_shipping(weight_g: int) -> float:
         return 25.0
 
 
-def create_order(product_id: int, quantity: int):
-    product = Product.get_by_id(product_id)
-    total = round(product.price * quantity, 2)
-    shipping = _calc_shipping(product.weight * quantity)
-
+def create_order(products: list) -> Order:
+    """
+    Crée une commande avec un ou plusieurs produits.
+    products = [{"id": int, "quantity": int}, ...]
+    """
     db.connect(reuse_if_open=True)
-    with db.atomic():
-        order = Order.create(
-            total_price=total,
-            total_price_tax=None,
-            product_quantity=quantity,
-            product=product_id,
-            email=None,
-            credit_card=None,
-            shipping_information=None,
-            paid=False,
-            transaction=None,
-            shipping_price=shipping,
-        )
-    db.close()
-    return order
+    try:
+        total_price = 0.0
+        total_weight = 0
+        product_objects = []
+
+        for item in products:
+            p = Product.get_by_id(item["id"])
+            total_price += p.price * item["quantity"]
+            total_weight += p.weight * item["quantity"]
+            product_objects.append((p, item["quantity"]))
+
+        total_price = round(total_price, 2)
+        shipping = _calc_shipping(total_weight)
+
+        with db.atomic():
+            order = Order.create(
+                total_price=total_price,
+                total_price_tax=None,
+                email=None,
+                credit_card=None,
+                shipping_information=None,
+                paid=False,
+                transaction=None,
+                shipping_price=shipping,
+            )
+            for p, qty in product_objects:
+                OrderProduct.create(order=order, product=p, quantity=qty)
+
+        return order
+    finally:
+        db.close()
 
 
 def update_order_info(order_id: int, email: str, shipping_data: dict):

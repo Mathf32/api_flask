@@ -1,7 +1,7 @@
 """
-Tests conformes au devis TP1.
-POST /order  → 302 + Location header
-GET /order/<id> → 200 + {order: {...}}
+Tests conformes au devis TP1 + TP2.
+POST /order  → 302 + Location header (format product ou products)
+GET /order/<id> → 200 + {order: {..., products: [...]}}
 PUT /order/<id> avec {order: ...} → 200 + {order: {...}}
 PUT /order/<id> avec {credit_card: ...} → 200 + {order: {...}} ou 422
 """
@@ -93,6 +93,44 @@ def test_get_order(client):
     assert isinstance(order["shipping_information"], dict)
     assert isinstance(order["credit_card"], dict)
     assert isinstance(order["transaction"], dict)
+    # TP2 : la réponse contient une liste de produits
+    assert isinstance(order["products"], list)
+    assert len(order["products"]) == 1
+    assert order["products"][0]["id"] == 1
+    assert order["products"][0]["quantity"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Multi-produits (TP2)
+# ---------------------------------------------------------------------------
+
+def test_create_order_multi_products(client):
+    """POST /order avec le nouveau format products: [...]"""
+    res = client.post("/order", json={
+        "products": [
+            {"id": 1, "quantity": 2},
+            {"id": 3, "quantity": 1},
+        ]
+    })
+    assert res.status_code == 302
+    assert "Location" in res.headers
+
+    order_id = int(res.headers["Location"].split("/")[-1])
+    res2 = client.get(f"/order/{order_id}")
+    assert res2.status_code == 200
+    order = res2.get_json()["order"]
+    assert len(order["products"]) == 2
+    # total = 28.10*2 + 15.50*1 = 71.70
+    assert abs(order["total_price"] - 71.70) < 0.01
+
+
+def test_create_order_single_product_backward_compat(client):
+    """L'ancien format {"product": {...}} doit toujours fonctionner."""
+    res = client.post("/order", json={"product": {"id": 1, "quantity": 1}})
+    assert res.status_code == 302
+    order_id = int(res.headers["Location"].split("/")[-1])
+    order = client.get(f"/order/{order_id}").get_json()["order"]
+    assert len(order["products"]) == 1
 
 
 def test_get_order_not_found(client):

@@ -8,7 +8,7 @@ load_dotenv()
 os.environ["db_path"] = os.getenv("test_db_path", "test.db")
 
 from app import create_app
-from app.database.db import db, Product, Order, Transaction, CreditCard, ShippingInformation
+from app.database.db import db, Product, Order, OrderProduct, Transaction, CreditCard, ShippingInformation
 
 
 @pytest.fixture(scope="session")
@@ -25,10 +25,10 @@ def client(app):
 
 @pytest.fixture(autouse=True)
 def setup_test_db():
-    """Recrée les tables et insère un produit de test avant chaque test."""
+    """Recrée les tables et insère des produits de test avant chaque test."""
     db.connect(reuse_if_open=True)
-    db.drop_tables([Order, Transaction, CreditCard, ShippingInformation, Product], safe=True)
-    db.create_tables([Product, Order, Transaction, CreditCard, ShippingInformation])
+    db.drop_tables([OrderProduct, Order, Transaction, CreditCard, ShippingInformation, Product], safe=True)
+    db.create_tables([Product, ShippingInformation, CreditCard, Transaction, Order, OrderProduct])
 
     Product.create(
         id=1,
@@ -51,6 +51,17 @@ def setup_test_db():
         weight=200,
         price=10.00,
         in_stock=False,
+    )
+    Product.create(
+        id=3,
+        name="Deuxième Produit Test",
+        type="test",
+        description="Pour tester les commandes multi-produits",
+        image="img3.png",
+        height=8,
+        weight=300,
+        price=15.50,
+        in_stock=True,
     )
 
     yield
