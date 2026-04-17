@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:12
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: api8inf349
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:5
+    ports:
+      - "6379:6379"
+
+volumes:
+  postgres_data:
