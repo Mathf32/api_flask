@@ -3,40 +3,67 @@ from app.database.db import (
     Product, Order, OrderProduct, ShippingInformation, CreditCard, Transaction,
     TAX_RATES, create_order, update_order_info, db
 )
+from app.database.db_redis import cache_order,get_cache_order
 from app.routes.shops import pay_order
 from peewee import DoesNotExist
 
 orders_bp = Blueprint("orders", __name__)
 
 
-def _build_order_response(order: Order) -> dict:
-    """Construit le dict complet d'une commande selon le format du devis."""
+def _build_order_response(order) -> dict:
+    """Construit le dict complet d'une commande (Order ou dict)."""
 
-    # Liste des produits depuis la table de liaison
-    order_products = OrderProduct.select().where(OrderProduct.order == order)
+    # 🔹 Normaliser accès aux champs
+    if isinstance(order, dict):
+        order_id = order["id"]
+        shipping_information_id = order.get("shipping_information")
+        credit_card_id = order.get("credit_card")
+        transaction_id = order.get("transaction")
+
+        total_price = order["total_price"]
+        total_price_tax = order.get("total_price_tax")
+        email = order.get("email")
+        paid = order.get("paid")
+        shipping_price = order["shipping_price"]
+
+    else:
+        order_id = order.id
+        shipping_information_id = order.shipping_information_id
+        credit_card_id = order.credit_card_id
+        transaction_id = order.transaction_id
+
+        total_price = order.total_price
+        total_price_tax = order.total_price_tax
+        email = order.email
+        paid = order.paid
+        shipping_price = order.shipping_price
+
+    # 🔹 Produits
+    order_products = OrderProduct.select().where(OrderProduct.order == order_id)
     products_list = [
         {"id": op.product_id, "quantity": op.quantity}
         for op in order_products
     ]
 
+    # 🔹 Relations
     shipping_info = None
-    if order.shipping_information_id:
+    if shipping_information_id:
         try:
-            shipping_info = ShippingInformation.get_by_id(order.shipping_information_id)
+            shipping_info = ShippingInformation.get_by_id(shipping_information_id)
         except DoesNotExist:
             pass
 
     credit_card = None
-    if order.credit_card_id:
+    if credit_card_id:
         try:
-            credit_card = CreditCard.get_by_id(order.credit_card_id)
+            credit_card = CreditCard.get_by_id(credit_card_id)
         except DoesNotExist:
             pass
 
     transaction = None
-    if order.transaction_id:
+    if transaction_id:
         try:
-            transaction = Transaction.get_by_id(order.transaction_id)
+            transaction = Transaction.get_by_id(transaction_id)
         except DoesNotExist:
             pass
 
@@ -47,16 +74,16 @@ def _build_order_response(order: Order) -> dict:
 
     return {
         "order": {
-            "id": order.id,
-            "total_price": float(order.total_price),
-            "total_price_tax": float(order.total_price_tax) if order.total_price_tax is not None else None,
-            "email": order.email,
+            "id": order_id,
+            "total_price": float(total_price),
+            "total_price_tax": float(total_price_tax) if total_price_tax is not None else None,
+            "email": email,
             "credit_card": safe(credit_card, ["name", "first_digits", "last_digits", "expiration_year", "expiration_month"]),
             "shipping_information": safe(shipping_info, ["country", "address", "postal_code", "city", "province"]),
-            "paid": bool(order.paid),
+            "paid": bool(paid),
             "transaction": safe(transaction, ["id", "success", "amount_charged"]),
             "products": products_list,
-            "shipping_price": float(order.shipping_price),
+            "shipping_price": float(shipping_price),
         }
     }
 
@@ -93,7 +120,7 @@ def create_order_route():
                 "errors": {
                     "product": {
                         "code": "missing-fields",
-                        "name": "Chaque produit doit avoir un id et une quantité"
+                        "name": f"Chaque produit doit avoir un id et une quantité | Produit {product_id}"
                     }
                 }
             }), 422
@@ -126,7 +153,7 @@ def create_order_route():
                 "errors": {
                     "product": {
                         "code": "out-of-inventory",
-                        "name": "Le produit demandé n'est pas en inventaire"
+                        "name": f"Le produit demandé n'est pas en inventaire | Produit {product_id}"
                     }
                 }
             }), 422
@@ -134,6 +161,9 @@ def create_order_route():
         validated.append({"id": int(product_id), "quantity": quantity})
 
     order = create_order(validated)
+    print(order.id)
+    cache_order(order)
+
 
     response = jsonify({})
     response.status_code = 302
@@ -143,12 +173,17 @@ def create_order_route():
 
 @orders_bp.get("/order/<int:order_id>")
 def get_order(order_id: int):
-    try:
-        order = Order.get_by_id(order_id)
-    except DoesNotExist:
-        return jsonify({
-            "errors": {"order": {"code": "not-found", "name": "La commande demandée n'existe pas"}}
-        }), 404
+    
+    order = get_cache_order(order_id)
+    if order is None:
+        print("Pas trouver")
+        try:
+            order = Order.get_by_id(order_id)
+            cache_order(order)
+        except DoesNotExist:
+            return jsonify({
+                "errors": {"order": {"code": "not-found", "name": "La commande demandée n'existe pas"}}
+            }), 404
 
     return jsonify(_build_order_response(order)), 200
 
