@@ -1,37 +1,29 @@
-# app.py (tout-en-un) — Peewee + SQLite
 import os
 from dotenv import load_dotenv
 from peewee import (
     Proxy,
-    SqliteDatabase, Model,
+    SqliteDatabase, PostgresqlDatabase, Model,
     IntegerField, TextField, FloatField, BooleanField,
     AutoField, ForeignKeyField
 )
-from playhouse.shortcuts import model_to_dict
-
 
 load_dotenv()
 
-# Chemin DB depuis .env (ex: DB_PATH=app/database/products.db)
-DB_PATH = os.getenv("db_path")
 db = Proxy()
+
+TAX_RATES = {
+    "QC": 0.15,
+    "ON": 0.13,
+    "AB": 0.05,
+    "BC": 0.12,
+    "NS": 0.14,
+}
 
 
 class BaseModel(Model):
     class Meta:
         database = db
 
-
-def setup_db():
-    load_dotenv()
-    path = os.getenv("db_path", "products.db")
-    real_db = SqliteDatabase(path)
-    db.initialize(real_db)
-
-def init_db():
-    db.connect(reuse_if_open=True)
-    db.create_tables([Product, Order, Transaction, CreditCard, ShippingInformation])
-    db.close()
 
 class Product(BaseModel):
     id = AutoField(primary_key=True)
@@ -43,8 +35,10 @@ class Product(BaseModel):
     weight = IntegerField()
     price = FloatField()
     in_stock = BooleanField()
+
     class Meta:
         table_name = 'products'
+
 
 class ShippingInformation(BaseModel):
     id = AutoField(primary_key=True)
@@ -54,6 +48,7 @@ class ShippingInformation(BaseModel):
     city = TextField()
     province = TextField()
 
+
 class CreditCard(BaseModel):
     id = AutoField(primary_key=True)
     name = TextField()
@@ -61,6 +56,7 @@ class CreditCard(BaseModel):
     last_digits = TextField()
     expiration_year = IntegerField()
     expiration_month = IntegerField()
+
 
 class Transaction(BaseModel):
     id = AutoField(primary_key=True)
@@ -71,80 +67,121 @@ class Transaction(BaseModel):
 class Order(BaseModel):
     id = AutoField(primary_key=True)
     total_price = FloatField(default=0)
-    total_price_tax = FloatField(default=0,null=True)
+    total_price_tax = FloatField(default=None, null=True)
     email = TextField(null=True)
-    credit_card = ForeignKeyField(CreditCard, backref="orders", null=True)             # JSON string
-    shipping_information = ForeignKeyField(ShippingInformation, backref="orders", null=True)    # JSON string
+    credit_card = ForeignKeyField(CreditCard, backref="orders", null=True)
+    shipping_information = ForeignKeyField(ShippingInformation, backref="orders", null=True)
     paid = BooleanField(default=False)
-    transaction = ForeignKeyField(Transaction, backref="orders", null=True)              # JSON string
-    product = ForeignKeyField(Product, backref="orders")
-    product_quantity = IntegerField()
+    transaction = ForeignKeyField(Transaction, backref="orders", null=True)
     shipping_price = FloatField(default=0)
+
+    class Meta:
+        table_name = 'orders'
+
+
+class OrderProduct(BaseModel):
+    """Table de liaison Order ↔ Product (supporte les commandes multi-produits)."""
+    order = ForeignKeyField(Order, backref='order_products')
+    product = ForeignKeyField(Product, backref='order_products')
+    quantity = IntegerField()
+
+    class Meta:
+        table_name = 'order_products'
+
+
+def setup_db():
+    load_dotenv()
+    db_host = os.getenv("DB_HOST")
+    if db_host:
+        # Mode production : PostgreSQL
+        real_db = PostgresqlDatabase(
+            os.getenv("DB_NAME", "api8inf349"),
+            user=os.getenv("DB_USER", "user"),
+            password=os.getenv("DB_PASSWORD", "pass"),
+            host=db_host,
+            port=int(os.getenv("DB_PORT", 5432)),
+        )
+    else:
+        # Mode développement/tests : SQLite
+        path = os.getenv("db_path", "products.db")
+        real_db = SqliteDatabase(path)
+    db.initialize(real_db)
 
 
 def init_db():
     db.connect(reuse_if_open=True)
-    db.create_tables([Product, Order, Transaction, CreditCard, ShippingInformation])
+    db.create_tables([Product, ShippingInformation, CreditCard, Transaction, Order, OrderProduct])
     db.close()
 
 
-def save_products(products: list[dict]):
-    """
-    products = [{"id":1, "name":"...", "type":"...", ...}, ...]
-    """
+def _clean_product(p: dict) -> dict:
+    """Supprime les caractères NUL (\\x00) incompatibles avec PostgreSQL."""
+    return {k: v.replace('\x00', '') if isinstance(v, str) else v for k, v in p.items()}
+
+
+def save_products(products: list):
     db.connect(reuse_if_open=True)
     with db.atomic():
         for p in products:
-            Product.insert(p).on_conflict_replace().execute()
+            p = _clean_product(p)
+            Product.insert(p).on_conflict(
+                conflict_target=[Product.id],
+                update=p
+            ).execute()
     db.close()
 
-def create_order(requete: dict):
-    """
-    products = [{"id":1, "name":"...", "type":"...", ...}, ...]
-    """
 
-    product_id = int(requete["id"])
-    quantity = int(requete["quantity"])
-    product = Product.get_by_id(product_id)
-
-    total = product.price * quantity
-    shipping = 0
-
-    if product.weight <= 500:
-        shipping = 5
-    elif product.weight < 2000:
-        shipping = 10
+def _calc_shipping(weight_g: int) -> float:
+    """Frais d'expédition en dollars selon le poids total."""
+    if weight_g <= 500:
+        return 5.0
+    elif weight_g < 2000:
+        return 10.0
     else:
-        shipping = 25
+        return 25.0
 
+
+def create_order(products: list) -> Order:
+    """
+    Crée une commande avec un ou plusieurs produits.
+    products = [{"id": int, "quantity": int}, ...]
+    """
     db.connect(reuse_if_open=True)
-    with db.atomic():
-        order = Order.create(
-            total_price = total,
-            total_price_tax = 0,
-            product_quantity = quantity,
-            product = product_id,
-            email = None,
-            credit_card = None,
-            shipping_information = None,
-            paid = False,
-            transaction = None,
-            shipping_price = shipping
-        )
-    db.close()
+    try:
+        total_price = 0.0
+        total_weight = 0
+        product_objects = []
 
-    return order
+        for item in products:
+            p = Product.get_by_id(item["id"])
+            total_price += p.price * item["quantity"]
+            total_weight += p.weight * item["quantity"]
+            product_objects.append((p, item["quantity"]))
+
+        total_price = round(total_price, 2)
+        shipping = _calc_shipping(total_weight)
+
+        with db.atomic():
+            order = Order.create(
+                total_price=total_price,
+                total_price_tax=None,
+                email=None,
+                credit_card=None,
+                shipping_information=None,
+                paid=False,
+                transaction=None,
+                shipping_price=shipping,
+            )
+            for p, qty in product_objects:
+                OrderProduct.create(order=order, product=p, quantity=qty)
+
+        return order
+    finally:
+        db.close()
 
 
-def update_order(request: dict, order_id):
-    # On vérifie si shipping_information est présent avant de tenter de le créer
-    shipping_data = request.get("shipping_information")
-
-    if shipping_data:
-        shipping_info = create_shippinginfo(shipping_data)
-    else:
-        shipping_info = None
-
+def update_order_info(order_id: int, email: str, shipping_data: dict):
+    """Met à jour email + shipping_information + calcule les taxes."""
     db.connect(reuse_if_open=True)
     try:
         with db.atomic():
@@ -152,38 +189,22 @@ def update_order(request: dict, order_id):
             if order is None:
                 return None
 
-            # On ne met à jour que ce qui est fourni
-            if request.get("email"):
-                order.email = request["email"]
+            order.email = email
 
-            if shipping_info:
-                order.shipping_information = shipping_info
-                # Recalcul des taxes (QC = 15%, etc.)
-                tax_rate = 1.15 if shipping_info.province == "QC" else 1.13
-                order.total_price_tax = float(int((order.total_price * tax_rate) * 100 + 0.5)) / 100.0
+            shipping = ShippingInformation.create(
+                country=shipping_data["country"],
+                address=shipping_data["address"],
+                postal_code=shipping_data["postal_code"],
+                city=shipping_data["city"],
+                province=shipping_data["province"],
+            )
+            order.shipping_information = shipping
+
+            province = shipping_data.get("province", "").strip().upper()
+            tax_rate = TAX_RATES.get(province, 0.0)
+            order.total_price_tax = round(order.total_price * (1 + tax_rate), 2)
 
             order.save()
             return order
     finally:
         db.close()
-
-
-def create_shippinginfo(shippinginfo: dict):
-    db.connect(reuse_if_open=True)
-    with db.atomic():
-        shipping = ShippingInformation.create(
-            country=shippinginfo["country"],
-            address=shippinginfo["address"],
-            postal_code=shippinginfo["postal_code"],
-            city=shippinginfo["city"],
-            province=shippinginfo["province"]
-            
-        )
-    db.close()
-
-    return shipping
-
-
-
-if __name__ == "__main__":
-    init_db()

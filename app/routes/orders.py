@@ -1,262 +1,238 @@
-from flask import Blueprint,jsonify, request
-from app.database.db import Product,Order,ShippingInformation,CreditCard,Transaction
-import app.database.db as db
-from playhouse.shortcuts import model_to_dict
-from peewee import DoesNotExist
-
+from flask import Blueprint, jsonify, request
+from app.database.db import (
+    Product, Order, OrderProduct, ShippingInformation, CreditCard, Transaction,
+    TAX_RATES, create_order, update_order_info, db
+)
+from app.database.db_redis import cache_order,get_cache_order
 from app.routes.shops import pay_order
+from peewee import DoesNotExist
 
 orders_bp = Blueprint("orders", __name__)
 
-TAX_RATES = {
-    "QC": 0.15,
-    "ON": 0.13,
-    "AB": 0.05,
-    "BC": 0.12,
-    "NS": 0.14,
-}
 
-def _shipping_price_cents(total_weight_g: int) -> int:
-    if total_weight_g <= 500:
-        return 500
-    if total_weight_g < 2000:
-        return 1000
-    return 2500
+def _build_order_response(order) -> dict:
+    """Construit le dict complet d'une commande (Order ou dict)."""
 
-def _safe_dict(model_obj) -> dict:
-    # Retourne {} si None (comme les exemples du devis)
-    return model_obj.__data__.copy() if model_obj is not None else {}
+    # 🔹 Normaliser accès aux champs
+    if isinstance(order, dict):
+        order_id = order["id"]
+        shipping_information_id = order.get("shipping_information")
+        credit_card_id = order.get("credit_card")
+        transaction_id = order.get("transaction")
+
+        total_price = order["total_price"]
+        total_price_tax = order.get("total_price_tax")
+        email = order.get("email")
+        paid = order.get("paid")
+        shipping_price = order["shipping_price"]
+
+    else:
+        order_id = order.id
+        shipping_information_id = order.shipping_information_id
+        credit_card_id = order.credit_card_id
+        transaction_id = order.transaction_id
+
+        total_price = order.total_price
+        total_price_tax = order.total_price_tax
+        email = order.email
+        paid = order.paid
+        shipping_price = order.shipping_price
+
+    # 🔹 Produits
+    order_products = OrderProduct.select().where(OrderProduct.order == order_id)
+    products_list = [
+        {"id": op.product_id, "quantity": op.quantity}
+        for op in order_products
+    ]
+
+    # 🔹 Relations
+    shipping_info = None
+    if shipping_information_id:
+        try:
+            shipping_info = ShippingInformation.get_by_id(shipping_information_id)
+        except DoesNotExist:
+            pass
+
+    credit_card = None
+    if credit_card_id:
+        try:
+            credit_card = CreditCard.get_by_id(credit_card_id)
+        except DoesNotExist:
+            pass
+
+    transaction = None
+    if transaction_id:
+        try:
+            transaction = Transaction.get_by_id(transaction_id)
+        except DoesNotExist:
+            pass
+
+    def safe(obj, fields):
+        if obj is None:
+            return {}
+        return {f: getattr(obj, f) for f in fields}
+
+    return {
+        "order": {
+            "id": order_id,
+            "total_price": float(total_price),
+            "total_price_tax": float(total_price_tax) if total_price_tax is not None else None,
+            "email": email,
+            "credit_card": safe(credit_card, ["name", "first_digits", "last_digits", "expiration_year", "expiration_month"]),
+            "shipping_information": safe(shipping_info, ["country", "address", "postal_code", "city", "province"]),
+            "paid": bool(paid),
+            "transaction": safe(transaction, ["id", "success", "amount_charged"]),
+            "products": products_list,
+            "shipping_price": float(shipping_price),
+        }
+    }
 
 
 @orders_bp.post("/order")
-def order():
-    """
-    Création d'une commande
-    ---
-    tags:
-      - Orders
-    consumes:
-      - application/json
-    parameters:
-      - in: body
-        name: body
-        required: true
-        schema:
-          type: object
-          required:
-            - product
-          properties:
-            product:
-              type: object
-              required:
-                - id
-                - quantity
-              properties:
-                id:
-                  type: integer
-                  example: 1
-                quantity:
-                  type: integer
-                  example: 2
-    responses:
-      201:
-        description: Commande créée
-      400:
-        description: Erreur de validation
-    """
+def create_order_route():
+    data = request.get_json(silent=True) or {}
 
-    data = request.get_json()
-    data_transform = data["product"]
+    # Nouveau format: {"products": [...]}
+    # Ancien format (rétrocompat): {"product": {...}} → converti en liste
+    products_data = data.get("products")
+    if not products_data:
+        product_data = data.get("product")
+        if product_data:
+            products_data = [product_data]
 
-    product_id = data["product"]["id"]
-    quantity = data["product"]["quantity"]
-
-    verif_produit = Product.get_or_none(Product.id == product_id)
-
-    if verif_produit == None:
-        return jsonify({
-            "errors": {
-                "product": {
-                    "code": "invalid-ID",
-                    "name": "La création d'une commande nécessite un produit valide"
-                }
-            }
-        }), 400
-    
-    if product_id is None or quantity is None:
+    if not products_data:
         return jsonify({
             "errors": {
                 "product": {
                     "code": "missing-fields",
-                    "name": "La création d'une commande nécessite un produit et une quantité"
+                    "name": "La création d'une commande nécessite au moins un produit"
                 }
             }
-        }), 400
-    
-    
-    
-    if not verif_produit.in_stock:
-        return {
-            "errors": {
-                "product": {
-                    "code": "insufficient-stock",
-                    "name": "Quantité insuffisante en stock"
+        }), 422
+
+    validated = []
+    for item in products_data:
+        product_id = item.get("id")
+        quantity = item.get("quantity")
+
+        if product_id is None or quantity is None:
+            return jsonify({
+                "errors": {
+                    "product": {
+                        "code": "missing-fields",
+                        "name": f"Chaque produit doit avoir un id et une quantité | Produit {product_id}"
+                    }
                 }
-            }
-        }, 400
+            }), 422
+
+        try:
+            quantity = int(quantity)
+        except (ValueError, TypeError):
+            return jsonify({
+                "errors": {"product": {"code": "missing-fields", "name": "La quantité doit être un entier"}}
+            }), 422
+
+        if quantity < 1:
+            return jsonify({
+                "errors": {"product": {"code": "missing-fields", "name": "La quantité doit être >= 1"}}
+            }), 422
+
+        product = Product.get_or_none(Product.id == product_id)
+        if product is None:
+            return jsonify({
+                "errors": {
+                    "product": {
+                        "code": "invalid-product",
+                        "name": "Le produit demandé n'existe pas"
+                    }
+                }
+            }), 422
+
+        if not product.in_stock:
+            return jsonify({
+                "errors": {
+                    "product": {
+                        "code": "out-of-inventory",
+                        "name": f"Le produit demandé n'est pas en inventaire | Produit {product_id}"
+                    }
+                }
+            }), 422
+
+        validated.append({"id": int(product_id), "quantity": quantity})
+
+    order = create_order(validated)
+    print(order.id)
+    cache_order(order)
 
 
-    new_order = db.create_order(data_transform)
-
-    return {"Nouvelle Commande ": model_to_dict(new_order)}
-
-
-@orders_bp.put("/order/<int:order_id>")
-def put_order(order_id: int):
-    """
-    Mettre à jour une commande (adresse/taxes) OU payer la commande
-    ---
-    tags:
-      - Orders
-    parameters:
-      - name: order_id
-        in: path
-        required: true
-        type: integer
-
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          description: Payload pour update ou paiement
-          example:
-              order:
-                email: "pierluc@test.com"
-                shipping_information:
-                  country: "Canada"
-                  address: "555 Boulevard de l'Université"
-                  postal_code: "G7H 2B1"
-                  city: "Saguenay"
-                  province: "QC"
-              credit_card:
-                name: "John Doe"
-                number: "4242424242424242"
-                expiration_year: 2028
-                expiration_month: 9
-                cvv: "123"
-
-    responses:
-      200:
-        description: OK
-      404:
-        description: Commande inexistante
-      422:
-        description: Erreur de validation
-    """
-    data = request.get_json()
-
-    credit_card = data.get("credit_card") or (data.get("order") and data.get("order").get("credit_card"))
-
-    # 1. CAS PAIEMENT
-    if credit_card:
-        # On passe la carte extraite à pay_order
-        result, status = pay_order(order_id, credit_card)
-        return jsonify(result), status
-
-    # 2. CAS MISE À JOUR (Adresse/Email)
-    order_payload = data.get("order")
-    if order_payload:
-        db.update_order(order_payload, order_id)
-        order = Order.get_or_none(Order.id == order_id)
-        if order:
-            return jsonify({"order": model_to_dict(order)}), 200
-
-    return jsonify({"error": "Invalid request"}), 400
-
-
-
-
-
+    response = jsonify({})
+    response.status_code = 302
+    response.headers["Location"] = f"/order/{order.id}"
+    return response
 
 
 @orders_bp.get("/order/<int:order_id>")
 def get_order(order_id: int):
-    """
-    Get order by id
-    ---
-    tags:
-      - Orders
-    parameters:
-      - name: order_id
-        in: path
-        required: true
-        schema:
-          type: integer
-    responses:
-      200:
-        description: Order found
-      404:
-        description: Order not found
-    """
-    try:
-        order = Order.get_by_id(order_id)
-    except DoesNotExist:
-        # Le devis spécifie 404 pour une commande inexistante (au moins pour PUT),
-        # mais c'est cohérent de faire pareil pour GET.
-        return jsonify({"errors": {"order": {"code": "not-found", "name": "Commande inexistante"}}}), 404
+    
+    order = get_cache_order(order_id)
+    if order is None:
+        print("Pas trouver")
+        try:
+            order = Order.get_by_id(order_id)
+            cache_order(order)
+        except DoesNotExist:
+            return jsonify({
+                "errors": {"order": {"code": "not-found", "name": "La commande demandée n'existe pas"}}
+            }), 404
 
-    # Produit
-    try:
-        product = Product.get_by_id(order.product_id)
-    except DoesNotExist:
-        # Si DB corrompue / produit supprimé
-        return jsonify({"errors": {"order": {"code": "invalid-product", "name": "Produit introuvable"}}}), 422
+    return jsonify(_build_order_response(order)), 200
 
-    qty = int(order.product_quantity or 0)
-    if qty < 1:
-        qty = 1  # sécurité
 
-    total_price = int(product.price) * qty  # cents
+@orders_bp.put("/order/<int:order_id>")
+def put_order(order_id: int):
+    data = request.get_json(silent=True) or {}
 
-    # Shipping info (si présente) pour calcul taxe
-    shipping_info = None
-    province = None
-    if getattr(order, "shipping_information_id", None):
-        shipping_info = db.ShippingInformation.get_by_id(order.shipping_information_id)
-        province = (shipping_info.province or "").strip().upper()
+    # Cas paiement
+    credit_card_data = data.get("credit_card")
+    if credit_card_data:
+        result, status = pay_order(order_id, credit_card_data)
+        if status != 200:
+            return jsonify(result), status
 
-    # Shipping calc (poids total)
-    total_weight_g = int(product.weight) * qty
-    shipping_price = _shipping_price_cents(total_weight_g)
+        # Construire la réponse complète après paiement
+        try:
+            order = Order.get_by_id(order_id)
+        except DoesNotExist:
+            return jsonify({"errors": {"order": {"code": "not-found", "name": "Commande introuvable"}}}), 404
 
-    # Tax calc (si province connue, sinon 0)
-    tax_rate = TAX_RATES.get(province, 0.0)
-    total_price_tax = total_price * (1.0 + tax_rate)
+        return jsonify(_build_order_response(order)), 200
 
-    credit_card = None
-    if getattr(order, "credit_card_id", None):
-        credit_card = db.CreditCard.get_by_id(order.credit_card_id)
+    # Cas mise à jour infos client
+    order_payload = data.get("order")
+    if not order_payload:
+        return jsonify({"errors": {"order": {"code": "missing-fields", "name": "Payload invalide"}}}), 422
 
-    transaction = None
-    if getattr(order, "transaction_id", None):
-        transaction = db.Transaction.get_by_id(order.transaction_id)
+    email = order_payload.get("email")
+    shipping_data = order_payload.get("shipping_information")
 
-    payload = {
-        "order": {
-            "id": order.id,
-            "total_price": total_price,
-            "total_price_tax": total_price_tax,
-            "email": getattr(order, "email", None),
-            "credit_card": _safe_dict(credit_card),
-            "shipping_information": _safe_dict(shipping_info),
-            "paid": bool(getattr(order, "paid", False)),
-            "transaction": _safe_dict(transaction),
-            "product": {
-                "id": product.id,
-                "quantity": qty,
-            },
-            "shipping_price": shipping_price,
-        }
-    }
-    return jsonify(payload), 200
+    if not email or not shipping_data:
+        return jsonify({
+            "errors": {"order": {"code": "missing-fields", "name": "L'email et l'adresse sont requis"}}
+        }), 422
+
+    # Vérifier que la commande existe
+    order = Order.get_or_none(Order.id == order_id)
+    if not order:
+        return jsonify({
+            "errors": {"order": {"code": "not-found", "name": "La commande demandée n'existe pas"}}
+        }), 404
+
+    updated = update_order_info(order_id, email, shipping_data)
+    if updated is None:
+        return jsonify({
+            "errors": {"order": {"code": "not-found", "name": "La commande demandée n'existe pas"}}
+        }), 404
+
+    # Recharger depuis DB pour avoir shipping_information_id à jour
+    order = Order.get_by_id(order_id)
+    return jsonify(_build_order_response(order)), 200

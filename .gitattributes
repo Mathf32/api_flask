@@ -1,0 +1,5 @@
+git add .gitattributes
+git rm --cached -r .
+git reset HEAD
+git add .
+git commit -m "Fix line endings (LF)"
