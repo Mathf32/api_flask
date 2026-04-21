@@ -90,9 +90,6 @@ class OrderProduct(BaseModel):
 
 def setup_db():
     db_host = os.getenv("DB_HOST")
-    for key in ["DB_NAME", "DB_USER", "DB_PASSWORD", "DB_HOST"]:
-        value = os.getenv(key)
-        print(key, "=", repr(value))
     if db_host:
         # Mode production : PostgreSQL
         real_db = PostgresqlDatabase(

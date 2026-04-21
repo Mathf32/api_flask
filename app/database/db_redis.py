@@ -1,34 +1,31 @@
-from app.database.db import Product, Order
-import json 
+import json
+import os
 import redis
 
-r = redis.Redis(host="localhost", port=6379, db=0, decode_responses=True)
 
-def cache_order(order):
-    r = redis.Redis(host="localhost", port=6379, db=0, decode_responses=True)
-    order_dict = {
-    "id": order.id,
-    "total_price": order.total_price,
-    "total_price_tax": order.total_price_tax,
-    "email": order.email,
-    "credit_card": order.credit_card_id,
-    "shipping_information": order.shipping_information_id,
-    "paid": order.paid,
-    "transaction": order.transaction_id,
-    "shipping_price": order.shipping_price,
-    "payment_pending" : order.payment_pending
-    }
-    order_json = json.dumps(order_dict)
+def _get_redis():
+    """Retourne une connexion Redis à partir de REDIS_URL."""
+    url = os.getenv("REDIS_URL", "redis://localhost")
+    return redis.Redis.from_url(url, decode_responses=True)
 
-    r.set(f"order:{order.id}", order_json)
 
-def get_cache_order(id):
-    r = redis.Redis(host="localhost", port=6379, db=0, decode_responses=True)
-    print(id)
-    order = r.get(f"order:{id}")
-    if order == None:
+def cache_order(order_id: int, response_data: dict):
+    """
+    Met en cache la réponse complète d'une commande payée.
+    response_data : le dict complet tel que retourné par GET /order/<id>
+    """
+    r = _get_redis()
+    r.set(f"order:{order_id}", json.dumps(response_data))
+
+
+def get_cached_order(order_id: int):
+    """
+    Retourne le dict complet mis en cache, ou None si absent ou si Redis est inaccessible.
+    Quand cette fonction retourne quelque chose, on n'a pas besoin de toucher Postgres.
+    """
+    try:
+        r = _get_redis()
+        data = r.get(f"order:{order_id}")
+        return json.loads(data) if data is not None else None
+    except Exception:
         return None
-    else:
-        return json.loads(order)
-
-
