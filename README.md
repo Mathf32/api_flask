@@ -10,7 +10,7 @@
 | --- |----------------|
 | Pier-Luc Larouche | LARP03108406   |
 | Mathieu Dionne | DIOM30120200   |
-| Alexandre Perron | PERA           |
+| Alexandre Perron | PERA25010108   |
 
 ---
 
