@@ -7,10 +7,10 @@
 **Équipe :**
 
 | Nom | Code permanent |
-| --- | --- |
-| Pier-Luc Larouche | LARP03108403 |
-| Mathieu Dionne | *(à compléter)* |
-| Alexandre Perron | *(à compléter)* |
+| --- |----------------|
+| Pier-Luc Larouche | LARP03108406   |
+| Mathieu Dionne | DIOM           |
+| Alexandre Perron | PERA           |
 
 ---
 
