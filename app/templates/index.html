@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Interface API</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<div class="container">
+    <h1>Dashboard API</h1>
+
+    <div class="section">
+        <h2>Produits</h2>
+        <a href="/products" class="btn">Voir tous les produits</a>
+    </div>
+
+    <div class="section">
+        <h2>Commande par ID</h2>
+        <form onsubmit="this.action='/order/' + document.getElementById('order_id').value;">
+            <input type="number" id="order_id" placeholder="Entrer un ID" required>
+            <button type="submit" class="btn">Voir commande</button>
+        </form>
+    </div>
+
+    <div class="section">
+        <h2>Créer une commande</h2>
+
+        <form action="/order" method="post" class="order-form">
+            <h3>Client</h3>
+            <input type="email" name="email" value="test@email.com" required>
+
+            <h3>Carte de crédit</h3>
+            <input type="text" name="credit_card_name" value="Alex Test" required>
+            <input type="text" name="credit_card_first_digits" value="4242" required>
+            <input type="text" name="credit_card_last_digits" value="4242" required>
+            <input type="number" name="expiration_year" value="2030" required>
+            <input type="number" name="expiration_month" value="12" required>
+
+            <h3>Livraison</h3>
+            <input type="text" name="country" value="Canada" required>
+            <input type="text" name="address" value="123 rue test" required>
+            <input type="text" name="postal_code" value="G1A1A1" required>
+            <input type="text" name="city" value="Québec" required>
+            <input type="text" name="province" value="QC" required>
+
+            <h3>Produits de la commande</h3>
+
+            <div id="products-container">
+                <div class="product-row">
+                    <select name="product_id[]" required onchange="updateTotal()">
+                        {% for product in products %}
+                            <option value="{{ product.id }}" data-price="{{ product.price }}">
+                                {{ product.name }} - {{ "%.2f"|format(product.price) }} $
+                            </option>
+                        {% endfor %}
+                    </select>
+
+                    <input type="number" name="quantity[]" value="1" min="1" required onchange="updateTotal()">
+
+                    <button type="button" class="btn danger" onclick="removeProductRow(this)">
+                        Retirer
+                    </button>
+                </div>
+            </div>
+
+            <div class="row-buttons">
+                <button type="button" class="btn secondary" onclick="addProductRow()">
+                    Ajouter un produit
+                </button>
+            </div>
+
+            <div class="total-box">
+                Total estimé : <span id="total-price">0.00 $</span>
+            </div>
+
+            <div class="row-buttons">
+                <button type="submit" class="btn">Créer la commande</button>
+                <button type="reset" class="btn secondary">Reset</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+
+
+
+
+<template id="product-row-template">
+    <div class="product-row">
+        <select name="product_id[]" required onchange="updateTotal()">
+            {% for product in products %}
+                <option value="{{ product.id }}" data-price="{{ product.price }}">
+                    {{ product.name }} - {{ "%.2f"|format(product.price) }} $
+                </option>
+            {% endfor %}
+        </select>
+
+        <input type="number" name="quantity[]" value="1" min="1" required onchange="updateTotal()">
+
+        <button type="button" class="btn danger" onclick="removeProductRow(this)">
+            Retirer
+        </button>
+    </div>
+</template>
+
+
+
+
+
+<script>
+function addProductRow() {
+    const template = document.getElementById("product-row-template");
+    const container = document.getElementById("products-container");
+    const clone = template.content.cloneNode(true);
+    container.appendChild(clone);
+    updateTotal()
+}
+
+function removeProductRow(button) {
+    const container = document.getElementById("products-container");
+    const rows = container.querySelectorAll(".product-row");
+
+    if (rows.length <= 1) {
+        alert("Il faut garder au moins un produit.");
+        return;
+    }
+    
+    button.parentElement.remove();
+    updateTotal()
+}
+
+function updateTotal() {
+    let total = 0;
+
+    const rows = document.querySelectorAll(".product-row");
+
+    rows.forEach(row => {
+        const select = row.querySelector("select");
+        const quantityInput = row.querySelector("input");
+
+        const price = parseFloat(select.selectedOptions[0].dataset.price);
+        const quantity = parseInt(quantityInput.value) || 0;
+
+        total += price * quantity;
+    });
+
+    document.getElementById("total-price").textContent = total.toFixed(2) + " $";
+}
+
+
+document.addEventListener("DOMContentLoaded", updateTotal);
+</script>
+
+
+
+</body>
+</html>

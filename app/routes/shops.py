@@ -1,26 +1,25 @@
 import requests
 from app.database.db import Order, Transaction, CreditCard, db
+from app.database.db_redis import cache_order
 
-PAYMENT_URL = "http://dimensweb.uqac.ca/~jgnault/shops/pay/"
+PAYMENT_URL = "https://dimensweb.uqac.ca/~jgnault/shops/pay/"
 
 
 def pay_order(order_id, credit_card_data):
     order = Order.get_or_none(Order.id == order_id)
     if not order:
-        return {"errors": {"order": {"code": "not-found", "name": "Commande introuvable"}}}, 404
+        raise Exception("boom 1")
 
     if order.paid:
-        return {"errors": {"order": {"code": "already-paid", "name": "La commande a déjà été payée."}}}, 422
+        raise Exception("boom 2")
 
     if not order.email or not order.shipping_information_id:
-        return {
-            "errors": {"order": {"code": "missing-fields", "name": "Les informations du client sont nécessaires"}}
-        }, 422
+        raise Exception("boom 3")
 
     total_dollars = float(order.total_price_tax or order.total_price) + float(order.shipping_price)
     amount_cents = int(round(total_dollars * 100))
 
-    card_number = str(credit_card_data.get("number", "")).replace(" ", "").strip()
+    card_number = str(credit_card_data.get("number"))
 
     payload = {
         "credit_card": {
@@ -37,7 +36,7 @@ def pay_order(order_id, credit_card_data):
         response = requests.post(PAYMENT_URL, json=payload, timeout=10)
 
         if response.status_code != 200:
-            return response.json(), 422
+            raise Exception(response)
 
         res_data = response.json()
 
@@ -62,10 +61,15 @@ def pay_order(order_id, credit_card_data):
             order.paid = True
             order.transaction = transaction
             order.credit_card = cc
+            order.payment_pending = False
             order.save()
         db.close()
+
+        cache_order(order)
 
         return None, 200  # Le caller construit la réponse complète
 
     except Exception as e:
-        return {"errors": {"server": {"code": "connection-error", "name": str(e)}}}, 500
+        order.payment_pending = False
+        order.save()
+        raise Exception("boom 4")

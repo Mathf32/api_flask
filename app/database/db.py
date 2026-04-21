@@ -1,5 +1,4 @@
 import os
-from dotenv import load_dotenv
 from peewee import (
     Proxy,
     SqliteDatabase, PostgresqlDatabase, Model,
@@ -7,7 +6,6 @@ from peewee import (
     AutoField, ForeignKeyField
 )
 
-load_dotenv()
 
 db = Proxy()
 
@@ -74,6 +72,7 @@ class Order(BaseModel):
     paid = BooleanField(default=False)
     transaction = ForeignKeyField(Transaction, backref="orders", null=True)
     shipping_price = FloatField(default=0)
+    payment_pending = BooleanField(default=False)
 
     class Meta:
         table_name = 'orders'
@@ -90,8 +89,10 @@ class OrderProduct(BaseModel):
 
 
 def setup_db():
-    load_dotenv()
     db_host = os.getenv("DB_HOST")
+    for key in ["DB_NAME", "DB_USER", "DB_PASSWORD", "DB_HOST"]:
+        value = os.getenv(key)
+        print(key, "=", repr(value))
     if db_host:
         # Mode production : PostgreSQL
         real_db = PostgresqlDatabase(
