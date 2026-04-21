@@ -15,12 +15,12 @@ def cache_order(order):
     "shipping_information": order.shipping_information_id,
     "paid": order.paid,
     "transaction": order.transaction_id,
-    "shipping_price": order.shipping_price
+    "shipping_price": order.shipping_price,
+    "payment_pending" : order.payment_pending
     }
     order_json = json.dumps(order_dict)
-    print(order_json)
 
-    r.set(f"order:{order.id}", order_json,ex=60)
+    r.set(f"order:{order.id}", order_json)
 
 def get_cache_order(id):
     r = redis.Redis(host="localhost", port=6379, db=0, decode_responses=True)
