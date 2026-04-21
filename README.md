@@ -9,7 +9,7 @@
 | Nom | Code permanent |
 | --- |----------------|
 | Pier-Luc Larouche | LARP03108406   |
-| Mathieu Dionne | DIOM           |
+| Mathieu Dionne | DIOM30120200   |
 | Alexandre Perron | PERA           |
 
 ---
