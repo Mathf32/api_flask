@@ -1,8 +1,5 @@
 import os
 import pytest
-from dotenv import load_dotenv
-
-load_dotenv()
 
 # Forcer la DB de test AVANT d'importer l'app
 os.environ["db_path"] = os.getenv("test_db_path", "test.db")

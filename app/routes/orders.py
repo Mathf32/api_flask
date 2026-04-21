@@ -6,6 +6,9 @@ from app.database.db import (
 from app.database.db_redis import cache_order,get_cache_order
 from app.routes.shops import pay_order
 from peewee import DoesNotExist
+from rq import Queue
+from redis import Redis
+import os
 
 orders_bp = Blueprint("orders", __name__)
 
@@ -175,16 +178,26 @@ def create_order_route():
 def get_order(order_id: int):
     
     order = get_cache_order(order_id)
+    print(order["payment_pending"])
     if order is None:
         print("Pas trouver")
         try:
             order = Order.get_by_id(order_id)
             cache_order(order)
+            if(order.payment_pending == True):
+                return {
+                    "errors": {"order": {"code": "Conflict"}}
+                }, 409
         except DoesNotExist:
             return jsonify({
                 "errors": {"order": {"code": "not-found", "name": "La commande demandée n'existe pas"}}
             }), 404
 
+    if(order["payment_pending"] == True):
+            return {
+                "errors": {"order": {"code": "Conflict"}}
+            }, 409
+    
     return jsonify(_build_order_response(order)), 200
 
 
@@ -195,17 +208,43 @@ def put_order(order_id: int):
     # Cas paiement
     credit_card_data = data.get("credit_card")
     if credit_card_data:
-        result, status = pay_order(order_id, credit_card_data)
-        if status != 200:
-            return jsonify(result), status
+        order = Order.get_or_none(Order.id == order_id)
+        if not order:
+            return {"errors": {"order": {"code": "not-found", "name": "Commande introuvable"}}}, 404
+
+        if order.paid:
+            return {"errors": {"order": {"code": "already-paid", "name": "La commande a déjà été payée."}}}, 422
+
+        if not order.email or not order.shipping_information_id:
+            return {
+                "errors": {"order": {"code": "missing-fields", "name": "Les informations du client sont nécessaires"}}
+            }, 422
+        
+        if(order.payment_pending == True):
+            return {
+                "errors": {"order": {"code": "Conflict"}}
+            }, 409
+        
+        
+        redis_conn = Redis.from_url(os.getenv("REDIS_URL", "redis://localhost"))
+        q = Queue(connection=redis_conn)
+        job = q.enqueue(pay_order, order_id, credit_card_data)
+        print("JOB ID:", job.id)
+        order.payment_pending = 1
+        order.save()
+        cache_order(order)
+        
+        #if status != 200:
+         #   return jsonify(result), status
 
         # Construire la réponse complète après paiement
-        try:
-            order = Order.get_by_id(order_id)
-        except DoesNotExist:
-            return jsonify({"errors": {"order": {"code": "not-found", "name": "Commande introuvable"}}}), 404
+        #try:
+         #   order = Order.get_by_id(order_id)
+        #except DoesNotExist:
+         #   return jsonify({"errors": {"order": {"code": "not-found", "name": "Commande introuvable"}}}), 404
 
-        return jsonify(_build_order_response(order)), 200
+        #return jsonify(_build_order_response(order)), 200
+        return "", 202
 
     # Cas mise à jour infos client
     order_payload = data.get("order")
