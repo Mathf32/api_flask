@@ -96,11 +96,11 @@ def setup_db():
     if db_host:
         # Mode production : PostgreSQL
         real_db = PostgresqlDatabase(
-            "api",            # nom de la base
-            user="postgres",
-            password="Math6077*",
-            host="127.0.0.1",
-            port=5432
+            os.getenv("DB_NAME", "api8inf349"),
+            user=os.getenv("DB_USER", "user"),
+            password=os.getenv("DB_PASSWORD", "pass"),
+            host=db_host,
+            port=int(os.getenv("DB_PORT", 5432)),
         )
     else:
         # Mode développement/tests : SQLite

@@ -3,6 +3,7 @@ import app.database.db as db
 from app.routes.products import products_bp
 from app.routes.orders import orders_bp
 import requests
+from app.database.db import Product
 from rq import SimpleWorker
 from redis import Redis
 import os
