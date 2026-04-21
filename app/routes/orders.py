@@ -91,17 +91,105 @@ def _build_order_response(order) -> dict:
     }
 
 
+
+def create_order(products, email=None, credit_card=None, shipping_information=None, paid=False):
+    shipping_info_obj = None
+    if shipping_information:
+        shipping_info_obj = ShippingInformation.create(
+            country=shipping_information.get("country"),
+            address=shipping_information.get("address"),
+            postal_code=shipping_information.get("postal_code"),
+            city=shipping_information.get("city"),
+            province=shipping_information.get("province"),
+        )
+
+    credit_card_obj = None
+    if credit_card:
+        credit_card_obj = CreditCard.create(
+            name=credit_card.get("name"),
+            first_digits=credit_card.get("first_digits"),
+            last_digits=credit_card.get("last_digits"),
+            expiration_year=credit_card.get("expiration_year"),
+            expiration_month=credit_card.get("expiration_month"),
+        )
+
+    total_price = 0
+    for item in products:
+        product = Product.get_by_id(item["id"])
+        total_price += float(product.price) * int(item["quantity"])
+
+    shipping_price = 5.0
+
+    order = Order.create(
+        email=email,
+        paid=False,
+        total_price=total_price,
+        total_price_tax=None,
+        shipping_price=shipping_price,
+        shipping_information=shipping_info_obj,
+        credit_card=credit_card_obj,
+        transaction=None
+    )
+
+    for item in products:
+        OrderProduct.create(
+            order=order,
+            product=item["id"],
+            quantity=item["quantity"]
+        )
+
+    return order
+
+
+
+
+
 @orders_bp.post("/order")
 def create_order_route():
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(silent=True)
 
-    # Nouveau format: {"products": [...]}
-    # Ancien format (rétrocompat): {"product": {...}} → converti en liste
-    products_data = data.get("products")
-    if not products_data:
-        product_data = data.get("product")
-        if product_data:
-            products_data = [product_data]
+    if data:
+        products_data = data.get("products")
+        if not products_data:
+            product_data = data.get("product")
+            if product_data:
+                products_data = [product_data]
+
+        email = data.get("email")
+        paid = bool(data.get("paid", False))
+
+        credit_card = data.get("credit_card") or {}
+        shipping_information = data.get("shipping_information") or {}
+
+    else:
+        product_ids = request.form.getlist("product_id[]")
+        quantities = request.form.getlist("quantity[]")
+
+        products_data = []
+        for product_id, quantity in zip(product_ids, quantities):
+            products_data.append({
+                "id": product_id,
+                "quantity": quantity
+            })
+
+        email = request.form.get("email")
+        paid = request.form.get("paid") == "on"
+
+        credit_card = {
+            "name": request.form.get("credit_card_name"),
+            "first_digits": request.form.get("credit_card_first_digits"),
+            "last_digits": request.form.get("credit_card_last_digits"),
+            "expiration_year": request.form.get("expiration_year"),
+            "expiration_month": request.form.get("expiration_month"),
+        }
+
+        shipping_information = {
+            "country": request.form.get("country"),
+            "address": request.form.get("address"),
+            "postal_code": request.form.get("postal_code"),
+            "city": request.form.get("city"),
+            "province": request.form.get("province"),
+        }
 
     if not products_data:
         return jsonify({
@@ -129,15 +217,26 @@ def create_order_route():
             }), 422
 
         try:
+            product_id = int(product_id)
             quantity = int(quantity)
         except (ValueError, TypeError):
             return jsonify({
-                "errors": {"product": {"code": "missing-fields", "name": "La quantité doit être un entier"}}
+                "errors": {
+                    "product": {
+                        "code": "missing-fields",
+                        "name": "Le produit et la quantité doivent être des entiers"
+                    }
+                }
             }), 422
 
         if quantity < 1:
             return jsonify({
-                "errors": {"product": {"code": "missing-fields", "name": "La quantité doit être >= 1"}}
+                "errors": {
+                    "product": {
+                        "code": "missing-fields",
+                        "name": "La quantité doit être >= 1"
+                    }
+                }
             }), 422
 
         product = Product.get_or_none(Product.id == product_id)
@@ -161,17 +260,29 @@ def create_order_route():
                 }
             }), 422
 
-        validated.append({"id": int(product_id), "quantity": quantity})
+        validated.append({
+            "id": product_id,
+            "quantity": quantity
+        })
 
-    order = create_order(validated)
-    print(order.id)
+    order = create_order(
+        validated,
+        email=email,
+        credit_card=credit_card,
+        shipping_information=shipping_information,
+        paid=paid
+    )
+
     cache_order(order)
-
 
     response = jsonify({})
     response.status_code = 302
     response.headers["Location"] = f"/order/{order.id}"
     return response
+
+
+
+
 
 
 @orders_bp.get("/order/<int:order_id>")

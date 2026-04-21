@@ -1,4 +1,4 @@
-from flask import Flask
+from flask import Flask, render_template
 import app.database.db as db
 from app.routes.products import products_bp
 from app.routes.orders import orders_bp
@@ -11,6 +11,12 @@ import os
 def create_app():
     app = Flask(__name__)
     db.setup_db()
+
+    @app.route("/")
+    def home():
+        products = Product.select()
+        return render_template("index.html", products=products)
+
 
     @app.cli.command("init-db")
     def init_db_command():
