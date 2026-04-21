@@ -2,157 +2,417 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Interface API</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Boutique INF349</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
 
-<div class="container">
-    <h1>Dashboard API</h1>
+<header>
+    <div class="header-inner">
+        <h1>🛒 Boutique INF349</h1>
+        <span class="subtitle">Interface de test — Technologies Web avancées</span>
+    </div>
+</header>
 
-    <div class="section">
-        <h2>Produits</h2>
-        <a href="/products" class="btn">Voir tous les produits</a>
+<nav class="tabs">
+    <button class="tab-btn active" onclick="showTab('products', this)">📦 Produits</button>
+    <button class="tab-btn" onclick="showTab('order', this)">🧾 Nouvelle commande</button>
+    <button class="tab-btn" onclick="showTab('lookup', this)">🔍 Consulter une commande</button>
+</nav>
+
+<!-- ══════════════ ONGLET : PRODUITS ══════════════ -->
+<section id="tab-products" class="tab-content active">
+    <h2>Catalogue des produits</h2>
+    <div class="product-grid">
+        {% for product in products %}
+        <div class="product-card {% if not product.in_stock %}out-of-stock{% endif %}">
+            <div class="product-badge">{% if product.in_stock %}✅ En stock{% else %}❌ Rupture{% endif %}</div>
+            <h3>{{ product.name }}</h3>
+            <p class="product-desc">{{ product.description[:80] }}{% if product.description|length > 80 %}…{% endif %}</p>
+            <div class="product-meta">
+                <span class="price">{{ "%.2f"|format(product.price) }} $</span>
+                <span class="weight">{{ product.weight }} g</span>
+                <span class="id">#{{ product.id }}</span>
+            </div>
+            {% if product.in_stock %}
+            <button class="btn" onclick="addToCart({{ product.id }}, '{{ product.name|replace("'", "\\'") }}', {{ product.price }})">
+                + Ajouter
+            </button>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</section>
+
+<!-- ══════════════ ONGLET : NOUVELLE COMMANDE ══════════════ -->
+<section id="tab-order" class="tab-content">
+
+    <!-- Indicateur d'étapes -->
+    <div class="stepper">
+        <div class="step active" id="step-ind-1"><span>1</span> Produits</div>
+        <div class="step-sep"></div>
+        <div class="step" id="step-ind-2"><span>2</span> Client</div>
+        <div class="step-sep"></div>
+        <div class="step" id="step-ind-3"><span>3</span> Paiement</div>
+        <div class="step-sep"></div>
+        <div class="step" id="step-ind-4"><span>4</span> Résultat</div>
     </div>
 
-    <div class="section">
-        <h2>Commande par ID</h2>
-        <form onsubmit="this.action='/order/' + document.getElementById('order_id').value;">
-            <input type="number" id="order_id" placeholder="Entrer un ID" required>
-            <button type="submit" class="btn">Voir commande</button>
-        </form>
+    <!-- Étape 1 : Sélection des produits -->
+    <div id="step-1" class="step-panel">
+        <h2>Étape 1 — Sélectionner les produits</h2>
+
+        <div id="cart-items">
+            <div class="cart-row" id="cart-row-0">
+                <select id="cart-product-0" onchange="updateOrderTotal()">
+                    {% for product in products %}
+                    {% if product.in_stock %}
+                    <option value="{{ product.id }}" data-price="{{ product.price }}">
+                        {{ product.name }} — {{ "%.2f"|format(product.price) }} $
+                    </option>
+                    {% endif %}
+                    {% endfor %}
+                </select>
+                <input type="number" id="cart-qty-0" value="1" min="1" class="qty-input" onchange="updateOrderTotal()">
+                <button class="btn danger" onclick="removeCartRow(0)" title="Retirer">✕</button>
+            </div>
+        </div>
+
+        <div class="row-buttons">
+            <button class="btn secondary" onclick="addCartRow()">+ Ajouter un produit</button>
+        </div>
+
+        <div class="total-box">
+            Sous-total estimé : <strong id="order-total">0.00 $</strong>
+        </div>
+
+        <button class="btn large" onclick="submitOrder()">Créer la commande →</button>
+        <div id="step1-response" class="api-response hidden"></div>
     </div>
 
-    <div class="section">
-        <h2>Créer une commande</h2>
+    <!-- Étape 2 : Informations client -->
+    <div id="step-2" class="step-panel hidden">
+        <h2>Étape 2 — Informations client</h2>
+        <p class="order-id-banner">Commande <strong id="display-order-id"></strong></p>
 
-        <form action="/order" method="post" class="order-form">
-            <h3>Client</h3>
-            <input type="email" name="email" value="test@email.com" required>
+        <label>Courriel</label>
+        <input type="email" id="client-email" value="jgnault@uqac.ca">
 
-            <h3>Carte de crédit</h3>
-            <input type="text" name="credit_card_name" value="Alex Test" required>
-            <input type="text" name="credit_card_first_digits" value="4242" required>
-            <input type="text" name="credit_card_last_digits" value="4242" required>
-            <input type="number" name="expiration_year" value="2030" required>
-            <input type="number" name="expiration_month" value="12" required>
+        <label>Adresse</label>
+        <input type="text" id="client-address" value="201, rue Président-Kennedy">
 
-            <h3>Livraison</h3>
-            <input type="text" name="country" value="Canada" required>
-            <input type="text" name="address" value="123 rue test" required>
-            <input type="text" name="postal_code" value="G1A1A1" required>
-            <input type="text" name="city" value="Québec" required>
-            <input type="text" name="province" value="QC" required>
+        <label>Ville</label>
+        <input type="text" id="client-city" value="Chicoutimi">
 
-            <h3>Produits de la commande</h3>
+        <label>Code postal</label>
+        <input type="text" id="client-postal" value="G7X 3Y7">
 
-            <div id="products-container">
-                <div class="product-row">
-                    <select name="product_id[]" required onchange="updateTotal()">
-                        {% for product in products %}
-                            <option value="{{ product.id }}" data-price="{{ product.price }}">
-                                {{ product.name }} - {{ "%.2f"|format(product.price) }} $
-                            </option>
-                        {% endfor %}
-                    </select>
-
-                    <input type="number" name="quantity[]" value="1" min="1" required onchange="updateTotal()">
-
-                    <button type="button" class="btn danger" onclick="removeProductRow(this)">
-                        Retirer
-                    </button>
-                </div>
-            </div>
-
-            <div class="row-buttons">
-                <button type="button" class="btn secondary" onclick="addProductRow()">
-                    Ajouter un produit
-                </button>
-            </div>
-
-            <div class="total-box">
-                Total estimé : <span id="total-price">0.00 $</span>
-            </div>
-
-            <div class="row-buttons">
-                <button type="submit" class="btn">Créer la commande</button>
-                <button type="reset" class="btn secondary">Reset</button>
-            </div>
-        </form>
-    </div>
-</div>
-
-
-
-
-
-<template id="product-row-template">
-    <div class="product-row">
-        <select name="product_id[]" required onchange="updateTotal()">
-            {% for product in products %}
-                <option value="{{ product.id }}" data-price="{{ product.price }}">
-                    {{ product.name }} - {{ "%.2f"|format(product.price) }} $
-                </option>
-            {% endfor %}
+        <label>Province</label>
+        <select id="client-province">
+            <option value="QC">Québec (QC) — 15%</option>
+            <option value="ON">Ontario (ON) — 13%</option>
+            <option value="AB">Alberta (AB) — 5%</option>
+            <option value="BC">Colombie-Britannique (BC) — 12%</option>
+            <option value="NS">Nouvelle-Écosse (NS) — 14%</option>
         </select>
 
-        <input type="number" name="quantity[]" value="1" min="1" required onchange="updateTotal()">
+        <label>Pays</label>
+        <input type="text" id="client-country" value="Canada">
 
-        <button type="button" class="btn danger" onclick="removeProductRow(this)">
-            Retirer
-        </button>
+        <button class="btn large" onclick="submitClientInfo()">Enregistrer →</button>
+        <div id="step2-response" class="api-response hidden"></div>
     </div>
-</template>
 
+    <!-- Étape 3 : Paiement -->
+    <div id="step-3" class="step-panel hidden">
+        <h2>Étape 3 — Paiement</h2>
+        <p class="order-id-banner">Commande <strong id="display-order-id-3"></strong></p>
 
+        <div class="card-presets">
+            <span>Cartes de test :</span>
+            <button class="btn secondary small" onclick="fillCard('4242 4242 4242 4242')">✅ Valide</button>
+            <button class="btn danger small" onclick="fillCard('4000 0000 0000 0002')">❌ Déclinée</button>
+        </div>
 
+        <label>Nom sur la carte</label>
+        <input type="text" id="card-name" value="John Doe">
 
+        <label>Numéro de carte</label>
+        <input type="text" id="card-number" value="4242 4242 4242 4242" placeholder="4242 4242 4242 4242">
+
+        <div class="card-row-3">
+            <div>
+                <label>Année d'expiration</label>
+                <input type="number" id="card-year" value="2027">
+            </div>
+            <div>
+                <label>Mois d'expiration</label>
+                <input type="number" id="card-month" value="9" min="1" max="12">
+            </div>
+            <div>
+                <label>CVV</label>
+                <input type="text" id="card-cvv" value="123">
+            </div>
+        </div>
+
+        <div class="total-box" id="payment-amount-box"></div>
+
+        <button class="btn large" onclick="submitPayment()">💳 Payer →</button>
+        <p class="hint">Le paiement est traité en arrière-plan (async). Patientez quelques secondes puis consultez le résultat.</p>
+        <div id="step3-response" class="api-response hidden"></div>
+    </div>
+
+    <!-- Étape 4 : Résultat -->
+    <div id="step-4" class="step-panel hidden">
+        <h2>Étape 4 — Résultat</h2>
+        <p class="order-id-banner">Commande <strong id="display-order-id-4"></strong></p>
+
+        <button class="btn" onclick="pollOrderResult()">🔄 Actualiser le statut</button>
+        <button class="btn secondary" onclick="resetWizard()">+ Nouvelle commande</button>
+
+        <div id="step4-response" class="api-response hidden"></div>
+    </div>
+</section>
+
+<!-- ══════════════ ONGLET : CONSULTER ══════════════ -->
+<section id="tab-lookup" class="tab-content">
+    <h2>Consulter une commande</h2>
+    <div class="lookup-row">
+        <input type="number" id="lookup-id" placeholder="ID de la commande" min="1">
+        <button class="btn" onclick="lookupOrder()">🔍 Chercher</button>
+    </div>
+    <div id="lookup-response" class="api-response hidden"></div>
+</section>
 
 <script>
-function addProductRow() {
-    const template = document.getElementById("product-row-template");
-    const container = document.getElementById("products-container");
-    const clone = template.content.cloneNode(true);
-    container.appendChild(clone);
-    updateTotal()
+// ─── État global ─────────────────────────────────────────────────────────────
+let currentOrderId = null;
+let cartRowCount = 1;
+
+// ─── Navigation onglets ──────────────────────────────────────────────────────
+function showTab(name, btn) {
+    document.querySelectorAll('.tab-content').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('tab-' + name).classList.add('active');
+    if (btn) btn.classList.add('active');
 }
 
-function removeProductRow(button) {
-    const container = document.getElementById("products-container");
-    const rows = container.querySelectorAll(".product-row");
-
-    if (rows.length <= 1) {
-        alert("Il faut garder au moins un produit.");
-        return;
+// ─── Ajout rapide depuis catalogue ───────────────────────────────────────────
+function addToCart(id, name, price) {
+    showTab('order', document.querySelectorAll('.tab-btn')[1]);
+    // Tenter de sélectionner dans un select existant
+    const selects = document.querySelectorAll('[id^="cart-product-"]');
+    for (let sel of selects) {
+        if (sel.value == id) { updateOrderTotal(); return; }
     }
-    
-    button.parentElement.remove();
-    updateTotal()
+    // Sinon ajouter une ligne et sélectionner le produit
+    addCartRow();
+    const newSelect = document.getElementById('cart-product-' + (cartRowCount - 1));
+    if (newSelect) {
+        newSelect.value = id;
+        updateOrderTotal();
+    }
 }
 
-function updateTotal() {
+// ─── Panier ──────────────────────────────────────────────────────────────────
+function addCartRow() {
+    const container = document.getElementById('cart-items');
+    const idx = cartRowCount++;
+    const selects = document.querySelectorAll('[id^="cart-product-"]');
+    const firstOptions = selects.length > 0 ? selects[0].innerHTML : '';
+    const row = document.createElement('div');
+    row.className = 'cart-row';
+    row.id = 'cart-row-' + idx;
+    row.innerHTML = `
+        <select id="cart-product-${idx}" onchange="updateOrderTotal()">${firstOptions}</select>
+        <input type="number" id="cart-qty-${idx}" value="1" min="1" class="qty-input" onchange="updateOrderTotal()">
+        <button class="btn danger" onclick="removeCartRow(${idx})" title="Retirer">✕</button>
+    `;
+    container.appendChild(row);
+    updateOrderTotal();
+}
+
+function removeCartRow(idx) {
+    const rows = document.querySelectorAll('.cart-row');
+    if (rows.length <= 1) { alert('Il faut au moins un produit.'); return; }
+    document.getElementById('cart-row-' + idx).remove();
+    updateOrderTotal();
+}
+
+function updateOrderTotal() {
     let total = 0;
+    document.querySelectorAll('.cart-row').forEach(row => {
+        const sel = row.querySelector('select');
+        const qty = parseInt(row.querySelector('input').value) || 0;
+        const price = parseFloat(sel.selectedOptions[0]?.dataset.price || 0);
+        total += price * qty;
+    });
+    document.getElementById('order-total').textContent = total.toFixed(2) + ' $';
+}
 
-    const rows = document.querySelectorAll(".product-row");
-
-    rows.forEach(row => {
-        const select = row.querySelector("select");
-        const quantityInput = row.querySelector("input");
-
-        const price = parseFloat(select.selectedOptions[0].dataset.price);
-        const quantity = parseInt(quantityInput.value) || 0;
-
-        total += price * quantity;
+// ─── Étape 1 : Créer la commande ─────────────────────────────────────────────
+async function submitOrder() {
+    const products = [];
+    document.querySelectorAll('.cart-row').forEach(row => {
+        const id = parseInt(row.querySelector('select').value);
+        const qty = parseInt(row.querySelector('input').value);
+        if (id && qty > 0) products.push({ id, quantity: qty });
     });
 
-    document.getElementById("total-price").textContent = total.toFixed(2) + " $";
+    showApiResponse('step1-response', null, 'En cours…');
+
+    // redirect: 'follow' (défaut) → le navigateur suit le 302 automatiquement
+    // res.url contiendra l'URL finale, ex: http://127.0.0.1:5000/order/3
+    const res = await fetch('/order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ products })
+    });
+
+    if (res.ok) {
+        currentOrderId = parseInt(res.url.split('/').pop());
+        const data = await res.json();
+        showApiResponse('step1-response', { status: '302 → 200', order_id: currentOrderId, order: data.order }, null, true);
+        goToStep(2);
+    } else {
+        const data = await res.json();
+        showApiResponse('step1-response', data, null, false);
+    }
 }
 
+// ─── Étape 2 : Infos client ──────────────────────────────────────────────────
+async function submitClientInfo() {
+    document.getElementById('display-order-id').textContent = '#' + currentOrderId;
+    const payload = {
+        order: {
+            email: document.getElementById('client-email').value,
+            shipping_information: {
+                country: document.getElementById('client-country').value,
+                address: document.getElementById('client-address').value,
+                postal_code: document.getElementById('client-postal').value,
+                city: document.getElementById('client-city').value,
+                province: document.getElementById('client-province').value,
+            }
+        }
+    };
 
-document.addEventListener("DOMContentLoaded", updateTotal);
+    showApiResponse('step2-response', null, 'En cours…');
+    const res = await fetch(`/order/${currentOrderId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    showApiResponse('step2-response', data, null, res.ok);
+
+    if (res.ok) {
+        const tax = data.order?.total_price_tax;
+        const ship = data.order?.shipping_price;
+        document.getElementById('payment-amount-box').innerHTML =
+            `Total avec taxes : <strong>${tax ? tax.toFixed(2) : '?'} $</strong> + livraison <strong>${ship ? ship.toFixed(2) : '?'} $</strong>`;
+        goToStep(3);
+    }
+}
+
+// ─── Étape 3 : Paiement ──────────────────────────────────────────────────────
+function fillCard(number) {
+    document.getElementById('card-number').value = number;
+}
+
+async function submitPayment() {
+    document.getElementById('display-order-id-3').textContent = '#' + currentOrderId;
+    const payload = {
+        credit_card: {
+            name: document.getElementById('card-name').value,
+            number: document.getElementById('card-number').value,
+            expiration_year: parseInt(document.getElementById('card-year').value),
+            expiration_month: parseInt(document.getElementById('card-month').value),
+            cvv: document.getElementById('card-cvv').value,
+        }
+    };
+
+    showApiResponse('step3-response', null, 'Paiement envoyé en file d\'attente…');
+    const res = await fetch(`/order/${currentOrderId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+
+    if (res.status === 202) {
+        showApiResponse('step3-response', { status: '202 Accepted', message: 'Paiement en cours de traitement (async)…' }, null, true);
+        goToStep(4);
+        setTimeout(pollOrderResult, 2000);
+    } else {
+        const data = await res.json();
+        showApiResponse('step3-response', data, null, false);
+    }
+}
+
+// ─── Étape 4 : Résultat ──────────────────────────────────────────────────────
+async function pollOrderResult() {
+    document.getElementById('display-order-id-4').textContent = '#' + currentOrderId;
+    showApiResponse('step4-response', null, 'Récupération en cours…');
+    const res = await fetch(`/order/${currentOrderId}`);
+
+    if (res.status === 202) {
+        showApiResponse('step4-response', { status: '202 Accepted', message: 'Paiement encore en cours… Actualisez dans quelques secondes.' }, null, null);
+        return;
+    }
+    const data = await res.json();
+    const paid = data.order?.paid;
+    const success = data.order?.transaction?.success;
+    showApiResponse('step4-response', data, null, paid === true ? true : (success === false ? false : null));
+}
+
+function resetWizard() {
+    currentOrderId = null;
+    cartRowCount = 1;
+    goToStep(1);
+    document.querySelectorAll('.api-response').forEach(el => el.classList.add('hidden'));
+}
+
+// ─── Consulter une commande ───────────────────────────────────────────────────
+async function lookupOrder() {
+    const id = document.getElementById('lookup-id').value;
+    if (!id) return;
+    showApiResponse('lookup-response', null, 'Chargement…');
+    const res = await fetch(`/order/${id}`);
+    if (res.status === 202) {
+        showApiResponse('lookup-response', { status: '202 Accepted', message: 'Paiement en cours.' }, null, null);
+        return;
+    }
+    const data = await res.json();
+    showApiResponse('lookup-response', data, null, res.ok && !data.errors);
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+function goToStep(n) {
+    for (let i = 1; i <= 4; i++) {
+        document.getElementById('step-' + i).classList.toggle('hidden', i !== n);
+        const ind = document.getElementById('step-ind-' + i);
+        if (ind) ind.classList.toggle('active', i <= n);
+    }
+    if (n === 2) document.getElementById('display-order-id').textContent = '#' + currentOrderId;
+    if (n === 3) document.getElementById('display-order-id-3').textContent = '#' + currentOrderId;
+    if (n === 4) document.getElementById('display-order-id-4').textContent = '#' + currentOrderId;
+}
+
+function showApiResponse(elId, data, loadingMsg, success) {
+    const el = document.getElementById(elId);
+    el.classList.remove('hidden', 'success', 'error');
+    if (loadingMsg) {
+        el.innerHTML = `<span class="loading">⏳ ${loadingMsg}</span>`;
+        return;
+    }
+    if (success === true) el.classList.add('success');
+    if (success === false) el.classList.add('error');
+    el.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+}
+
+// Init
+document.addEventListener('DOMContentLoaded', updateOrderTotal);
 </script>
-
-
 
 </body>
 </html>

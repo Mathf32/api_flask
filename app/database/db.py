@@ -58,8 +58,11 @@ class CreditCard(BaseModel):
 
 class Transaction(BaseModel):
     id = AutoField(primary_key=True)
+    transaction_id = TextField(null=True)   # ID retourné par le service de paiement (null si échec)
     success = BooleanField()
-    amount_charged = FloatField()
+    amount_charged = IntegerField()
+    error_code = TextField(null=True)
+    error_name = TextField(null=True)
 
 
 class Order(BaseModel):

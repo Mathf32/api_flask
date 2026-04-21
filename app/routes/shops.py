@@ -7,6 +7,28 @@ from app.database.db_redis import cache_order
 PAYMENT_URL = "https://dimensweb.uqac.ca/~jgnault/shops/pay/"
 
 
+def _build_transaction_dict(transaction) -> dict:
+    """Construit le dict transaction selon le format attendu par le devis."""
+    if transaction is None:
+        return {}
+    if transaction.success:
+        return {
+            "id": transaction.transaction_id,
+            "success": True,
+            "error": {},
+            "amount_charged": transaction.amount_charged,
+        }
+    else:
+        return {
+            "success": False,
+            "error": {
+                "code": transaction.error_code,
+                "name": transaction.error_name,
+            },
+            "amount_charged": transaction.amount_charged,
+        }
+
+
 def _build_cached_response(order, cc, transaction) -> dict:
     """
     Construit le dict complet d'une commande pour mise en cache Redis.
@@ -22,19 +44,23 @@ def _build_cached_response(order, cc, transaction) -> dict:
         except Exception:
             pass
 
+    credit_card_dict = {}
+    if cc:
+        credit_card_dict = {
+            "name": cc.name,
+            "first_digits": cc.first_digits,
+            "last_digits": cc.last_digits,
+            "expiration_year": cc.expiration_year,
+            "expiration_month": cc.expiration_month,
+        }
+
     return {
         "order": {
             "id": order.id,
             "total_price": float(order.total_price),
             "total_price_tax": float(order.total_price_tax) if order.total_price_tax is not None else None,
             "email": order.email,
-            "credit_card": {
-                "name": cc.name,
-                "first_digits": cc.first_digits,
-                "last_digits": cc.last_digits,
-                "expiration_year": cc.expiration_year,
-                "expiration_month": cc.expiration_month,
-            },
+            "credit_card": credit_card_dict,
             "shipping_information": {
                 "country": shipping_info.country,
                 "address": shipping_info.address,
@@ -42,12 +68,8 @@ def _build_cached_response(order, cc, transaction) -> dict:
                 "city": shipping_info.city,
                 "province": shipping_info.province,
             } if shipping_info else {},
-            "paid": True,
-            "transaction": {
-                "id": transaction.id,
-                "success": transaction.success,
-                "amount_charged": transaction.amount_charged,
-            },
+            "paid": bool(order.paid),
+            "transaction": _build_transaction_dict(transaction),
             "products": products_list,
             "shipping_price": float(order.shipping_price),
         }
@@ -70,7 +92,7 @@ def pay_order(order_id, credit_card_data):
         total_dollars = float(order.total_price_tax or order.total_price) + float(order.shipping_price)
         amount_cents = int(round(total_dollars * 100))
 
-        card_number = str(credit_card_data.get("number", "")).replace(" ", "").strip()
+        card_number = str(credit_card_data.get("number", "")).strip()
 
         payload = {
             "credit_card": {
@@ -84,26 +106,48 @@ def pay_order(order_id, credit_card_data):
         }
 
         response = requests.post(PAYMENT_URL, json=payload, timeout=10)
-
-        if response.status_code != 200:
-            order.payment_pending = False
-            order.save()
-            raise Exception(f"Paiement refusé : {response.text}")
-
         res_data = response.json()
 
+        if response.status_code != 200:
+            # Erreur retournée par le service distant → persister la transaction en échec
+            error_info = {}
+            errors = res_data.get("errors", {})
+            if "credit_card" in errors:
+                error_info = errors["credit_card"]
+
+            with db.atomic():
+                transaction = Transaction.create(
+                    transaction_id=None,
+                    success=False,
+                    amount_charged=amount_cents,
+                    error_code=error_info.get("code", "unknown"),
+                    error_name=error_info.get("name", "Erreur de paiement"),
+                )
+                order.payment_pending = False
+                order.transaction = transaction
+                order.save()
+
+            # Mettre en cache la commande avec la transaction en échec
+            response_data = _build_cached_response(order, None, transaction)
+            cache_order(order.id, response_data)
+            return
+
+        # Paiement réussi
         with db.atomic():
             t_info = res_data["transaction"]
             transaction = Transaction.create(
-                success=t_info["success"],
-                amount_charged=float(t_info["amount_charged"]) / 100.0,
+                transaction_id=t_info["id"],
+                success=bool(t_info["success"]),
+                amount_charged=int(t_info["amount_charged"]),
+                error_code=None,
+                error_name=None,
             )
 
             c_info = res_data["credit_card"]
             cc = CreditCard.create(
                 name=c_info["name"],
-                first_digits=c_info["first_digits"],
-                last_digits=c_info["last_digits"],
+                first_digits=str(c_info["first_digits"]),
+                last_digits=str(c_info["last_digits"]),
                 expiration_year=c_info["expiration_year"],
                 expiration_month=c_info["expiration_month"],
             )
@@ -119,7 +163,7 @@ def pay_order(order_id, credit_card_data):
         cache_order(order.id, response_data)
 
     except Exception:
-        # S'assurer que payment_pending est remis à False en cas d'erreur
+        # S'assurer que payment_pending est remis à False en cas d'erreur inattendue
         try:
             order.payment_pending = False
             order.save()

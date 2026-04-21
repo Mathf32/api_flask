@@ -4,7 +4,7 @@ from app.database.db import (
     TAX_RATES, create_order, update_order_info, db
 )
 from app.database.db_redis import cache_order, get_cached_order
-from app.routes.shops import pay_order
+from app.routes.shops import pay_order, _build_transaction_dict
 from peewee import DoesNotExist
 from rq import Queue
 from redis import Redis
@@ -57,7 +57,7 @@ def _build_order_response(order: Order) -> dict:
             "credit_card": safe(credit_card, ["name", "first_digits", "last_digits", "expiration_year", "expiration_month"]),
             "shipping_information": safe(shipping_info, ["country", "address", "postal_code", "city", "province"]),
             "paid": bool(order.paid),
-            "transaction": safe(transaction, ["id", "success", "amount_charged"]),
+            "transaction": _build_transaction_dict(transaction),
             "products": products_list,
             "shipping_price": float(order.shipping_price),
         }
