@@ -13,7 +13,7 @@ def create_app():
     app = Flask(__name__)
     db.setup_db()
 
-    @app.route("/ui")
+    @app.route("/")
     def home():
         products = Product.select()
         return render_template("index.html", products=products)

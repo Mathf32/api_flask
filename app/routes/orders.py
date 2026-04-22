@@ -152,6 +152,7 @@ def get_order(order_id: int):
     cached = get_cached_order(order_id)
     if cached is not None:
         return jsonify(cached), 200
+        
 
     # 2. Chercher dans Postgres
     try:
@@ -219,6 +220,13 @@ def put_order(order_id: int):
         return jsonify({
             "errors": {"order": {"code": "not-found", "name": "La commande demandée n'existe pas"}}
         }), 404
+
+    # Vérifier que la commande n'est pas déjà payée ou en cours de paiement
+    if order.paid:
+        return jsonify({"errors": {"order": {"code": "conflict", "name": "Impossible de modifier cette commande : elle est déjà payée"}}}), 409
+
+    if order.payment_pending:
+        return jsonify({"errors": {"order": {"code": "conflict", "name": "Impossible de modifier cette commande : un paiement est en cours"}}}), 409
 
     updated = update_order_info(order_id, email, shipping_data)
     if updated is None:
