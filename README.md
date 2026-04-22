@@ -33,10 +33,6 @@ Cette commande unique lance automatiquement :
 3. **Web** — initialise la BD (`flask init-db`) puis démarre Flask sur le port 5000
 4. **Worker** — traite les paiements en arrière-plan via RQ
 
-Une fois tout démarré, accédez à :
-- **Interface web (UI de test) :** http://localhost:5000/ui
-- **API REST :** http://localhost:5000/ (voir section "Endpoints de l'API" ci-dessous)
-
 Pour arrêter :
 ```bash
 docker-compose down
@@ -47,6 +43,16 @@ Pour repartir de zéro (effacer la BD) :
 docker-compose down -v
 docker-compose up --build
 ```
+
+---
+
+## Accès
+
+| | URL |
+|---|---|
+| 🖥️ Interface web (UI de test) | http://localhost:5000 |
+| 📖 Documentation Swagger | http://localhost:5000/apidocs |
+| 🔌 API REST | http://localhost:5000/ |
 
 ---
 
@@ -74,7 +80,7 @@ DB_PORT=5432
 REDIS_URL=redis://localhost:6379
 ```
 
-> En développement sans PostgreSQL, l'app utilise automatiquement SQLite (`products.db`).
+> En développement sans PostgreSQL (variable `DB_HOST` absente), l'app utilise automatiquement SQLite (`products.db`). Ne pas définir `DB_HOST` pour les tests locaux.
 
 ### Lancement
 

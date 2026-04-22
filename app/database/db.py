@@ -102,10 +102,10 @@ def setup_db():
             host=db_host,
             port=int(os.getenv("DB_PORT", 5432)),
         )
-    #else:
+    else:
         # Mode développement/tests : SQLite
-     #   path = os.getenv("db_path", "products.db")
-      #  real_db = SqliteDatabase(path)
+        path = os.getenv("db_path", "products.db")
+        real_db = SqliteDatabase(path)
     db.initialize(real_db)
 
 
