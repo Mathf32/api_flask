@@ -58,8 +58,11 @@ class CreditCard(BaseModel):
 
 class Transaction(BaseModel):
     id = AutoField(primary_key=True)
+    transaction_id = TextField(null=True)   # ID retourné par le service de paiement (null si échec)
     success = BooleanField()
-    amount_charged = FloatField()
+    amount_charged = IntegerField()
+    error_code = TextField(null=True)
+    error_name = TextField(null=True)
 
 
 class Order(BaseModel):
@@ -90,9 +93,6 @@ class OrderProduct(BaseModel):
 
 def setup_db():
     db_host = os.getenv("DB_HOST")
-    for key in ["DB_NAME", "DB_USER", "DB_PASSWORD", "DB_HOST"]:
-        value = os.getenv(key)
-        print(key, "=", repr(value))
     if db_host:
         # Mode production : PostgreSQL
         real_db = PostgresqlDatabase(
