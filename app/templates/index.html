@@ -18,6 +18,8 @@
 <nav class="tabs">
     <button class="tab-btn active" onclick="showTab('products', this)">📦 Produits</button>
     <button class="tab-btn" onclick="showTab('order', this)">🧾 Nouvelle commande</button>
+    <button class="tab-btn" onclick="showTab('edit', this)">✏️ Modifier une commande</button>
+    <button class="tab-btn" onclick="showTab('pay', this)">💳 Payer une commande</button>
     <button class="tab-btn" onclick="showTab('lookup', this)">🔍 Consulter une commande</button>
 </nav>
 
@@ -173,6 +175,96 @@
 
         <div id="step4-response" class="api-response hidden"></div>
     </div>
+</section>
+
+<!-- ══════════════ ONGLET : MODIFIER UNE COMMANDE ══════════════ -->
+<section id="tab-edit" class="tab-content">
+    <h2>Modifier une commande</h2>
+    
+    <div class="lookup-row">
+        <input type="number" id="edit-order-id" placeholder="ID de la commande" min="1">
+        <button class="btn" onclick="loadOrderForEdit()">📥 Charger</button>
+    </div>
+
+    <div id="edit-form" class="hidden">
+        <h3 id="edit-order-title">Commande #<span id="edit-order-num"></span></h3>
+
+        <label>Courriel</label>
+        <input type="email" id="edit-client-email">
+
+        <label>Adresse</label>
+        <input type="text" id="edit-client-address">
+
+        <label>Ville</label>
+        <input type="text" id="edit-client-city">
+
+        <label>Code postal</label>
+        <input type="text" id="edit-client-postal">
+
+        <label>Province</label>
+        <select id="edit-client-province">
+            <option value="QC">Québec (QC) — 15%</option>
+            <option value="ON">Ontario (ON) — 13%</option>
+            <option value="AB">Alberta (AB) — 5%</option>
+            <option value="BC">Colombie-Britannique (BC) — 12%</option>
+            <option value="NS">Nouvelle-Écosse (NS) — 14%</option>
+        </select>
+
+        <label>Pays</label>
+        <input type="text" id="edit-client-country">
+
+        <button class="btn large" onclick="submitEditOrder()">💾 Enregistrer les modifications</button>
+    </div>
+
+    <div id="edit-response" class="api-response hidden"></div>
+</section>
+
+<!-- ══════════════ ONGLET : PAYER UNE COMMANDE ══════════════ -->
+<section id="tab-pay" class="tab-content">
+    <h2>Payer une commande</h2>
+    
+    <div class="lookup-row">
+        <input type="number" id="pay-order-id" placeholder="ID de la commande" min="1">
+        <button class="btn" onclick="loadOrderForPayment()">📥 Charger</button>
+    </div>
+
+    <div id="pay-form" class="hidden">
+        <h3 id="pay-order-title">Commande #<span id="pay-order-num"></span></h3>
+
+        <div class="card-presets">
+            <span>Cartes de test :</span>
+            <button class="btn secondary small" onclick="fillPayCard('4242 4242 4242 4242')">✅ Valide</button>
+            <button class="btn danger small" onclick="fillPayCard('4000 0000 0000 0002')">❌ Déclinée</button>
+        </div>
+
+        <label>Nom sur la carte</label>
+        <input type="text" id="pay-card-name" value="John Doe">
+
+        <label>Numéro de carte</label>
+        <input type="text" id="pay-card-number" value="4242 4242 4242 4242" placeholder="4242 4242 4242 4242">
+
+        <div class="card-row-3">
+            <div>
+                <label>Année d'expiration</label>
+                <input type="number" id="pay-card-year" value="2027">
+            </div>
+            <div>
+                <label>Mois d'expiration</label>
+                <input type="number" id="pay-card-month" value="9" min="1" max="12">
+            </div>
+            <div>
+                <label>CVV</label>
+                <input type="text" id="pay-card-cvv" value="123">
+            </div>
+        </div>
+
+        <div class="total-box" id="pay-amount-box"></div>
+
+        <button class="btn large" onclick="submitPaymentOrder()">💳 Payer →</button>
+        <p class="hint">Le paiement est traité en arrière-plan (async). Patientez quelques secondes puis consultez le résultat.</p>
+    </div>
+
+    <div id="pay-response" class="api-response hidden"></div>
 </section>
 
 <!-- ══════════════ ONGLET : CONSULTER ══════════════ -->
@@ -384,6 +476,135 @@ async function lookupOrder() {
     }
     const data = await res.json();
     showApiResponse('lookup-response', data, null, res.ok && !data.errors);
+}
+
+// ─── Modifier une commande ───────────────────────────────────────────────────
+async function loadOrderForEdit() {
+    const id = document.getElementById('edit-order-id').value;
+    if (!id) return;
+    showApiResponse('edit-response', null, 'Chargement…');
+    const res = await fetch(`/order/${id}`);
+    const data = await res.json();
+
+    if (!res.ok || data.errors) {
+        showApiResponse('edit-response', data, null, false);
+        document.getElementById('edit-form').classList.add('hidden');
+        return;
+    }
+
+    // Remplir le formulaire avec les données de la commande
+    const order = data.order;
+    const shipping = order.shipping_information || {};
+
+    document.getElementById('edit-order-num').textContent = id;
+    document.getElementById('edit-client-email').value = order.email || '';
+    document.getElementById('edit-client-address').value = shipping.address || '';
+    document.getElementById('edit-client-city').value = shipping.city || '';
+    document.getElementById('edit-client-postal').value = shipping.postal_code || '';
+    document.getElementById('edit-client-province').value = shipping.province || 'QC';
+    document.getElementById('edit-client-country').value = shipping.country || 'Canada';
+
+    document.getElementById('edit-form').classList.remove('hidden');
+    showApiResponse('edit-response', { status: 'Commande chargée avec succès' }, null, true);
+}
+
+async function submitEditOrder() {
+    const id = document.getElementById('edit-order-id').value;
+    if (!id) return;
+
+    const payload = {
+        order: {
+            email: document.getElementById('edit-client-email').value,
+            shipping_information: {
+                country: document.getElementById('edit-client-country').value,
+                address: document.getElementById('edit-client-address').value,
+                postal_code: document.getElementById('edit-client-postal').value,
+                city: document.getElementById('edit-client-city').value,
+                province: document.getElementById('edit-client-province').value,
+            }
+        }
+    };
+
+    showApiResponse('edit-response', null, 'Mise à jour en cours…');
+    const res = await fetch(`/order/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
+    
+    if (res.status === 409) {
+        const errorMsg = {
+            status: '409 Conflict',
+            error_code: 409,
+            message: 'Impossible de modifier cette commande : elle est déjà payée ou en cours de paiement.',
+            details: data
+        };
+        showApiResponse('edit-response', errorMsg, null, false);
+    } else {
+        showApiResponse('edit-response', data, null, res.ok);
+    }
+}
+
+// ─── Payer une commande ───────────────────────────────────────────────────
+async function loadOrderForPayment() {
+    const id = document.getElementById('pay-order-id').value;
+    if (!id) return;
+    showApiResponse('pay-response', null, 'Chargement…');
+    const res = await fetch(`/order/${id}`);
+    const data = await res.json();
+
+    if (!res.ok || data.errors) {
+        showApiResponse('pay-response', data, null, false);
+        document.getElementById('pay-form').classList.add('hidden');
+        return;
+    }
+
+    // Remplir le formulaire avec les données de la commande
+    const order = data.order;
+    document.getElementById('pay-order-num').textContent = id;
+    
+    const tax = order.total_price_tax;
+    const ship = order.shipping_price;
+    document.getElementById('pay-amount-box').innerHTML =
+        `Total avec taxes : <strong>${tax ? tax.toFixed(2) : '?'} $</strong> + livraison <strong>${ship ? ship.toFixed(2) : '?'} $</strong>`;
+
+    document.getElementById('pay-form').classList.remove('hidden');
+    showApiResponse('pay-response', { status: 'Commande chargée avec succès' }, null, true);
+}
+
+function fillPayCard(number) {
+    document.getElementById('pay-card-number').value = number;
+}
+
+async function submitPaymentOrder() {
+    const id = document.getElementById('pay-order-id').value;
+    if (!id) return;
+
+    const payload = {
+        credit_card: {
+            name: document.getElementById('pay-card-name').value,
+            number: document.getElementById('pay-card-number').value,
+            expiration_year: parseInt(document.getElementById('pay-card-year').value),
+            expiration_month: parseInt(document.getElementById('pay-card-month').value),
+            cvv: document.getElementById('pay-card-cvv').value,
+        }
+    };
+
+    showApiResponse('pay-response', null, 'Paiement envoyé en file d\'attente…');
+    const res = await fetch(`/order/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+
+    if (res.status === 202) {
+        showApiResponse('pay-response', { status: '202 Accepted', message: 'Paiement en cours de traitement (async)…' }, null, true);
+    } else {
+        const data = await res.json();
+        showApiResponse('pay-response', data, null, res.ok);
+    }
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

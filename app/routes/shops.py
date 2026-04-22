@@ -1,10 +1,27 @@
-import requests
 from app.database.db import (
     Order, Transaction, CreditCard, OrderProduct, ShippingInformation, db
 )
 from app.database.db_redis import cache_order
+import json
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
 PAYMENT_URL = "https://dimensweb.uqac.ca/~jgnault/shops/pay/"
+
+
+def _post_json(url: str, payload: dict, timeout: int = 10) -> tuple[int, dict]:
+    request = Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            return response.status, json.load(response)
+    except HTTPError as error:
+        body = error.read().decode("utf-8")
+        return error.code, json.loads(body) if body else {}
 
 
 def _build_transaction_dict(transaction) -> dict:
@@ -105,10 +122,9 @@ def pay_order(order_id, credit_card_data):
             "amount_charged": amount_cents,
         }
 
-        response = requests.post(PAYMENT_URL, json=payload, timeout=10)
-        res_data = response.json()
+        status_code, res_data = _post_json(PAYMENT_URL, payload, timeout=10)
 
-        if response.status_code != 200:
+        if status_code != 200:
             # Erreur retournée par le service distant → persister la transaction en échec
             error_info = {}
             errors = res_data.get("errors", {})
