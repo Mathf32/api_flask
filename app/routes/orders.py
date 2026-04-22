@@ -151,12 +151,14 @@ def get_order(order_id: int):
     #    Si trouvé → retourner directement sans toucher Postgres
     cached = get_cached_order(order_id)
     if cached is not None:
+        print("cache")
         return jsonify(cached), 200
         
 
     # 2. Chercher dans Postgres
     try:
         order = Order.get_by_id(order_id)
+        print("bd")
     except DoesNotExist:
         return jsonify({
             "errors": {"order": {"code": "not-found", "name": "La commande demandée n'existe pas"}}
@@ -189,6 +191,17 @@ def put_order(order_id: int):
                 "errors": {"order": {"code": "missing-fields", "name": "Les informations du client sont nécessaires"}}
             }), 422
 
+        required_credit_card_fields = ["name", "number", "expiration_year", "expiration_month", "cvv"]
+        if any(not credit_card_data.get(field) for field in required_credit_card_fields):
+            return jsonify({
+                "errors": {
+                    "credit_card": {
+                        "code": "missing-fields",
+                        "name": "Les informations de la carte de crédit sont incomplètes"
+                    }
+                }
+            }), 422
+        
         if order.payment_pending:
             return jsonify({"errors": {"order": {"code": "conflict", "name": "Un paiement est déjà en cours"}}}), 409
 
@@ -215,6 +228,17 @@ def put_order(order_id: int):
             "errors": {"order": {"code": "missing-fields", "name": "L'email et l'adresse sont requis"}}
         }), 422
 
+    required_shipping_fields = ["country", "address", "postal_code", "city", "province"]
+    if any(not shipping_data.get(field) for field in required_shipping_fields):
+        return jsonify({
+            "errors": {
+                "order": {
+                    "code": "missing-fields",
+                    "name": "Les informations de livraison sont incomplètes",
+                }
+            }
+        }), 422
+
     order = Order.get_or_none(Order.id == order_id)
     if not order:
         return jsonify({
@@ -236,3 +260,4 @@ def put_order(order_id: int):
 
     order = Order.get_by_id(order_id)
     return jsonify(_build_order_response(order)), 200
+

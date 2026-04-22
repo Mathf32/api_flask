@@ -2,18 +2,19 @@ from flask import Flask, render_template
 import app.database.db as db
 from app.routes.products import products_bp
 from app.routes.orders import orders_bp
-import requests
 from app.database.db import Product
 from rq import SimpleWorker
 from redis import Redis
+import json
 import os
+from urllib.request import urlopen
 
 
 def create_app():
     app = Flask(__name__)
     db.setup_db()
 
-    @app.route("/")
+    @app.route("/ui")
     def home():
         products = Product.select()
         return render_template("index.html", products=products)
@@ -40,5 +41,5 @@ def create_app():
 
 
 def _get_product_list():
-    response = requests.get("https://dimensweb.uqac.ca/~jgnault/shops/products/")
-    return response.json()["products"]
+    with urlopen("https://dimensweb.uqac.ca/~jgnault/shops/products/", timeout=10) as response:
+        return json.load(response)["products"]

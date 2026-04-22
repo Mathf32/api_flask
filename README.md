@@ -35,7 +35,6 @@ Cette commande unique lance automatiquement :
 
 Une fois tout démarré, accédez à :
 - **Interface web (UI de test) :** http://localhost:5000/ui
-- **Flasgger :** http://localhost:5000/apidocs
 - **API REST :** http://localhost:5000/ (voir section "Endpoints de l'API" ci-dessous)
 
 Pour arrêter :
