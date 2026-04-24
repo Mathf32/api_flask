@@ -36,7 +36,7 @@ services:
       redis:
         condition: service_healthy
     environment:
-      - FLASK_APP=inf349.py
+      - FLASK_APP=api8inf349.py
       - FLASK_RUN_HOST=0.0.0.0
       - DB_HOST=postgres
       - DB_USER=user
@@ -54,7 +54,7 @@ services:
       redis:
         condition: service_healthy
     environment:
-      - FLASK_APP=inf349.py
+      - FLASK_APP=api8inf349.py
       - DB_HOST=postgres
       - DB_USER=user
       - DB_PASSWORD=pass

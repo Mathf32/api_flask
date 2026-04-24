@@ -71,7 +71,7 @@ pip install -r requirements.txt
 Créez un fichier `.env` à la racine (ou exportez les variables) :
 
 ```env
-FLASK_APP=inf349.py
+FLASK_APP=api8inf349.py
 DB_HOST=localhost
 DB_USER=user
 DB_PASSWORD=pass
@@ -86,13 +86,13 @@ REDIS_URL=redis://localhost:6379
 
 Terminal 1 — serveur Flask :
 ```bash
-flask --app inf349.py init-db
-flask --app inf349.py run
+flask --app api8inf349.py init-db
+flask --app api8inf349.py run
 ```
 
 Terminal 2 — worker RQ :
 ```bash
-flask --app inf349.py worker
+flask --app api8inf349.py worker
 ```
 
 ### Tests
@@ -199,7 +199,7 @@ Consultez ensuite `GET /order/<id>` pour vérifier le résultat.
 ├── CODES-PERMANENTS        # Codes permanents de l'équipe
 ├── docker-compose.yml      # Orchestration des 4 services
 ├── Dockerfile              # Image Python pour web + worker
-├── inf349.py               # Point d'entrée Flask
+├── api8inf349.py               # Point d'entrée Flask
 └── requirements.txt        # Dépendances Python
 ```
 
